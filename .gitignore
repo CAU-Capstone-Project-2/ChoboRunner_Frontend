@@ -43,3 +43,15 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Android signing (절대 커밋 금지)
+**/android/key.properties
+*.jks
+*.keystore
