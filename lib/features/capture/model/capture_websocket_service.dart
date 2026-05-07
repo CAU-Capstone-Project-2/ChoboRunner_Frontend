@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
 
-import 'feedback_message.dart';
+import 'server_message.dart';
 
 /// WebSocket 연결 상태
 enum ConnectionStatus {
@@ -48,7 +48,7 @@ class CaptureWebSocketService {
   StreamSubscription<dynamic>? _subscription;
 
   final _statusController = StreamController<ConnectionStatus>.broadcast();
-  final _messageController = StreamController<FeedbackMessage>.broadcast();
+  final _messageController = StreamController<ServerMessage>.broadcast();
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
   int _reconnectAttempts = 0;
@@ -59,7 +59,7 @@ class CaptureWebSocketService {
   Stream<ConnectionStatus> get statusStream => _statusController.stream;
 
   /// 파싱된 피드백 메시지 스트림
-  Stream<FeedbackMessage> get messageStream => _messageController.stream;
+  Stream<ServerMessage> get messageStream => _messageController.stream;
 
   /// 현재 연결 상태 (즉시 조회용)
   ConnectionStatus get status => _status;
@@ -74,6 +74,8 @@ class CaptureWebSocketService {
     }
 
     _intentionallyClosed = false;
+    // ignore: avoid_print
+    print('[WS] connecting to $uri');
     _setStatus(ConnectionStatus.connecting);
 
     try {
@@ -91,7 +93,11 @@ class CaptureWebSocketService {
         onDone: _handleDone,
         cancelOnError: false,
       );
-    } catch (e) {
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[WS] connect error: $e');
+      // ignore: avoid_print
+      print('[WS] stack: $st');
       _setStatus(ConnectionStatus.error);
       _scheduleReconnectIfNeeded();
     }
@@ -126,6 +132,17 @@ class CaptureWebSocketService {
     }
   }
 
+  /// 측정 세션 종료 신호 송신
+  ///
+  /// 백엔드 명세에 따라 text frame {"type":"stop"} 전송.
+  /// AI 서버는 이 신호를 받으면 즉시 누적 분석 결과(analysis_result)를 응답.
+  ///
+  /// 호출 후 연결을 바로 끊지 말 것 — analysis_result를 받기 위해 잠시 유지 필요.
+  /// 연결 종료는 결과를 받거나 타임아웃 후에 disconnect()로 따로 처리.
+  bool sendStop() {
+    return sendText('{"type":"stop"}');
+  }
+
   /// 연결 종료 (사용자 의도)
   Future<void> disconnect() async {
     _intentionallyClosed = true;
@@ -151,23 +168,39 @@ class CaptureWebSocketService {
   // ─────────── 내부 핸들러 ───────────
 
   void _handleMessage(dynamic data) {
+    // ignore: avoid_print
+    print('[WS] message received: type=${data.runtimeType}, length=${data is String ? data.length : data is List ? data.length : "?"}');
+
     if (data is String) {
-      final parsed = FeedbackMessage.tryParse(data);
-      if (parsed != null) {
+      // ignore: avoid_print
+      print('[WS] text first 200: ${data.length > 200 ? data.substring(0, 200) : data}');
+
+      final parsed = ServerMessage.tryParse(data);
+      if (parsed == null) {
+        // ignore: avoid_print
+        print('[WS] PARSE FAILED');
+      } else {
+        // ignore: avoid_print
+        print('[WS] parsed type: ${parsed.runtimeType}');
         _messageController.add(parsed);
       }
-      // 파싱 실패 메시지는 일단 무시 (필요시 별도 로깅 추가)
     } else if (data is List<int>) {
       // 현재 명세상 서버는 text JSON만 보냄. binary 응답은 무시.
+      // ignore: avoid_print
+      print('[WS] received binary (ignored)');
     }
   }
 
   void _handleError(Object error) {
+    // ignore: avoid_print
+    print('[WS] stream error: $error');
     _setStatus(ConnectionStatus.error);
     _scheduleReconnectIfNeeded();
   }
 
   void _handleDone() {
+    // ignore: avoid_print
+    print('[WS] connection closed (intentional=$_intentionallyClosed, code=${_channel?.closeCode}, reason=${_channel?.closeReason})');
     if (_intentionallyClosed) {
       _setStatus(ConnectionStatus.disconnected);
       return;
