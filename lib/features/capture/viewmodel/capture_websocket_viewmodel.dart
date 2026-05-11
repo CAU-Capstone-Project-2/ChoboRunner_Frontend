@@ -48,6 +48,10 @@ class CaptureWebSocketState {
   /// 최근 1초간 전송 fps
   final double sendFps;
 
+  /// 측정 경과 시간(초). analysis_progress.elapsed_sec 의 정수 부분.
+  /// 측정 시작 시 0으로 리셋.
+  final int elapsedSec;
+
   const CaptureWebSocketState({
     this.status = ConnectionStatus.disconnected,
     this.latestProgress,
@@ -60,6 +64,7 @@ class CaptureWebSocketState {
     this.droppedCount = 0,
     this.captureErrorCount = 0,
     this.sendFps = 0.0,
+    this.elapsedSec = 0,
   });
 
   CaptureWebSocketState copyWith({
@@ -74,6 +79,7 @@ class CaptureWebSocketState {
     int? droppedCount,
     int? captureErrorCount,
     double? sendFps,
+    int? elapsedSec,
     bool clearError = false,
     bool clearFinalResult = false,
   }) {
@@ -89,6 +95,7 @@ class CaptureWebSocketState {
       droppedCount: droppedCount ?? this.droppedCount,
       captureErrorCount: captureErrorCount ?? this.captureErrorCount,
       sendFps: sendFps ?? this.sendFps,
+      elapsedSec: elapsedSec ?? this.elapsedSec,
     );
   }
 
@@ -105,6 +112,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   late final CaptureLoopController _loop;
   StreamSubscription<ConnectionStatus>? _statusSub;
   StreamSubscription<ServerMessage>? _messageSub;
+  Stopwatch? _stopwatch;
+  Timer? _elapsedTimer;
 
   @override
   CaptureWebSocketState build() {
@@ -125,6 +134,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
       _messageSub?.cancel();
       _loop.stats.removeListener(_onLoopStatsChanged);
       _loop.dispose();
+      _elapsedTimer?.cancel();
+      _stopwatch?.stop();
     });
 
     return CaptureWebSocketState(status: _service.status);
@@ -152,11 +163,28 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   void startCapture() {
     _loop.reset();
     _loop.start();
+
+    // 러닝 시간 측정 시작 (클라이언트 자체)
+    _stopwatch = Stopwatch()..start();
+    state = state.copyWith(elapsedSec: 0);
+
+    _elapsedTimer?.cancel();
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final sw = _stopwatch;
+      if (sw != null && sw.isRunning) {
+        state = state.copyWith(elapsedSec: sw.elapsed.inSeconds);
+      }
+    });
   }
 
   /// 측정 정지 — 캡처 루프 멈춤 (stop 메시지는 별도)
   void stopCapture() {
     _loop.stop();
+
+    // 러닝 시간 측정 정지 (현재 elapsedSec 값은 유지)
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+    _stopwatch?.stop();
   }
 
   /// 측정 종료 신호 송신 (백엔드가 analysis_result 응답 트리거)
