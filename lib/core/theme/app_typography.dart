@@ -81,4 +81,45 @@ class AppTypography {
     fontSize: 14,
     fontWeight: FontWeight.w700,
   );
+
+  // ─── 홈 화면 ───────────────────────────────────
+
+  /// 'Chobo Runner' 브랜드 타이틀
+  static const TextStyle brandTitle = TextStyle(
+    color: AppColors.primaryAction,
+    fontSize: 32,
+    fontWeight: FontWeight.w500,
+    letterSpacing: -0.5,
+  );
+
+  /// 히어로 헤딩 ('지금 바로 달려 보세요!')
+  static const TextStyle heroHeading = TextStyle(
+    color: AppColors.primaryAction,
+    fontSize: 32,
+    fontWeight: FontWeight.w500,
+    height: 1.4,
+  );
+
+  /// 큰 CTA 버튼 라벨 ('러닝 시작')
+  static const TextStyle ctaButton = TextStyle(
+    color: AppColors.primaryActionText,
+    fontSize: 24,
+    fontWeight: FontWeight.w500,
+  );
+
+  /// 카드 헤딩 ('러닝 분석')
+  static const TextStyle cardHeading = TextStyle(
+    color: AppColors.analysisText,
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    height: 1.25,
+  );
+
+  /// 카드 본문 텍스트 (날짜/시간)
+  static const TextStyle cardBody = TextStyle(
+    color: AppColors.analysisText,
+    fontSize: 16,
+    fontWeight: FontWeight.w500,
+    height: 1.25,
+  );
 }

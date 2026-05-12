@@ -60,4 +60,26 @@ class AppColors {
 
   // ─── 구분선 ────────────────────────────────────
   static const Color divider = Color(0x33FFFFFF); // 흰색 20%
+
+  // ─── 홈 화면 ───────────────────────────────────
+  /// 히어로 영역 배경 (라이트 퍼플)
+  static const Color heroBanner = Color(0xFFB3A0FF);
+
+  /// 러닝 이력 카드 배경 (밝은 카드)
+  static const Color analysisCard = Color(0xFFFFFFFF);
+
+  /// 러닝 이력 항목 배경 (오프 화이트)
+  static const Color analysisEntry = Color(0xE0F8F8F8);
+
+  /// 러닝 이력 카드 위 텍스트 (검정 계열)
+  static const Color analysisText = Color(0xFF212121);
+
+  /// 러닝 점수 — 높음
+  static const Color scoreHigh = Color(0xFF1FBC25);
+
+  /// 러닝 점수 — 중간
+  static const Color scoreMid = Color(0xFFC0CB25);
+
+  /// 러닝 점수 — 낮음
+  static const Color scoreLow = Color(0xFFFE6C6E);
 }
