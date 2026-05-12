@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -26,6 +27,14 @@ class _CaptureMeasuringScreenState
     extends ConsumerState<CaptureMeasuringScreen> {
   bool _showDebug = false;
 
+  /// 측정이 한 번이라도 시작됐는지. true가 되면 WS 끊김에 관계없이
+  /// '러닝 종료' 버튼 유지하고 백그라운드에서 자동 재연결.
+  bool _measurementStarted = false;
+
+  Timer? _reconnectTimer;
+
+  static const Duration _reconnectDelay = Duration(seconds: 2);
+
   @override
   void initState() {
     super.initState();
@@ -38,6 +47,7 @@ class _CaptureMeasuringScreenState
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     ref.read(captureWebSocketViewModelProvider.notifier).disconnect();
     super.dispose();
   }
@@ -45,6 +55,39 @@ class _CaptureMeasuringScreenState
   @override
   Widget build(BuildContext context) {
     final cameraState = ref.watch(cameraViewModelProvider);
+
+    // 카메라 준비 완료 → WS 자동 연결 (최초 1회)
+    ref.listen<CameraState>(cameraViewModelProvider, (prev, next) {
+      final becameReady = prev?.ready != CameraReadyStatus.ready &&
+          next.ready == CameraReadyStatus.ready;
+      if (becameReady) _ensureConnect();
+    });
+
+    // WS 상태 전이: 자동 캡처 시작 + 자동 재연결
+    ref.listen<CaptureWebSocketState>(captureWebSocketViewModelProvider,
+        (prev, next) {
+      // 측정 시작 마크 (한 번만)
+      if (!_measurementStarted && next.isCapturing) {
+        setState(() => _measurementStarted = true);
+      }
+
+      final prevStatus = prev?.status;
+      final nextStatus = next.status;
+      if (prevStatus == nextStatus) return;
+
+      if (nextStatus == ConnectionStatus.connected) {
+        // 연결 성공 — 대기 중인 재연결 취소.
+        // 최초 진입 시에만 캡처 자동 시작 (이미 측정 중이면 캡처 루프는 계속 동작).
+        _reconnectTimer?.cancel();
+        if (!next.isCapturing && !_measurementStarted) {
+          ref.read(captureWebSocketViewModelProvider.notifier).startCapture();
+        }
+      } else if (nextStatus == ConnectionStatus.disconnected ||
+          nextStatus == ConnectionStatus.error) {
+        // 의도하지 않은 끊김/실패 → 잠시 후 자동 재연결.
+        _scheduleReconnect();
+      }
+    });
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -56,6 +99,19 @@ class _CaptureMeasuringScreenState
       ),
       body: SafeArea(child: _buildBody(cameraState)),
     );
+  }
+
+  void _ensureConnect() {
+    if (!mounted) return;
+    final wsState = ref.read(captureWebSocketViewModelProvider);
+    if (wsState.isConnected || wsState.isConnecting) return;
+    ref.read(captureWebSocketViewModelProvider.notifier).connect();
+  }
+
+  void _scheduleReconnect() {
+    if (!mounted) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(_reconnectDelay, _ensureConnect);
   }
 
   Widget _buildBody(CameraState cameraState) {
@@ -80,6 +136,7 @@ class _CaptureMeasuringScreenState
     return _MainContent(
       showDebug: _showDebug,
       onToggleDebug: () => setState(() => _showDebug = !_showDebug),
+      measurementStarted: _measurementStarted,
     );
   }
 }
@@ -148,10 +205,12 @@ class _MainContent extends ConsumerWidget {
   const _MainContent({
     required this.showDebug,
     required this.onToggleDebug,
+    required this.measurementStarted,
   });
 
   final bool showDebug;
   final VoidCallback onToggleDebug;
+  final bool measurementStarted;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -195,7 +254,12 @@ class _MainContent extends ConsumerWidget {
           const SizedBox(height: 20),
 
           // 메인 액션 버튼 (라임 옐로우)
-          _PrimaryAction(wsState: wsState, wsVm: wsVm, cameraVm: cameraVm),
+          _PrimaryAction(
+            wsState: wsState,
+            wsVm: wsVm,
+            cameraVm: cameraVm,
+            measurementStarted: measurementStarted,
+          ),
 
           // 디버그 토글
           TextButton.icon(
@@ -405,39 +469,34 @@ class _PrimaryAction extends StatelessWidget {
     required this.wsState,
     required this.wsVm,
     required this.cameraVm,
+    required this.measurementStarted,
   });
 
   final CaptureWebSocketState wsState;
   final CaptureWebSocketViewModel wsVm;
   final CameraViewModel cameraVm;
+  final bool measurementStarted;
 
   @override
   Widget build(BuildContext context) {
-    if (!wsState.isConnected) {
+    // 측정이 한 번이라도 시작된 이후엔 WS 끊김에 무관하게 '러닝 종료' 유지.
+    // 끊김 처리는 화면 상위에서 자동 재연결로 처리 — UI는 영향 받지 않음.
+    if (measurementStarted) {
       return _wideButton(
-        label: wsState.isConnecting ? '연결 중...' : '연결 시작',
-        onPressed: wsState.isConnecting ? null : wsVm.connect,
+        label: '러닝 종료',
+        onPressed: () {
+          final elapsed = wsState.elapsedSec;
+          wsVm.stopCapture();
+          wsVm.sendStop();
+          // 측정 종료 화면으로 이동 (elapsedSec 전달).
+          // 백엔드 analysis_result 응답은 추후 분석 리포트 화면 단계에서 처리.
+          context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
+        },
       );
     }
 
-    if (!wsState.isCapturing) {
-      return _wideButton(
-        label: '러닝 시작',
-        onPressed: wsVm.startCapture,
-      );
-    }
-
-    return _wideButton(
-      label: '러닝 종료',
-      onPressed: () {
-        final elapsed = wsState.elapsedSec;
-        wsVm.stopCapture();
-        wsVm.sendStop();
-        // 측정 종료 화면으로 이동 (elapsedSec 전달).
-        // 백엔드 analysis_result 응답은 추후 분석 리포트 화면 단계에서 처리.
-        context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
-      },
-    );
+    // 최초 진입: 연결/캡처 시작 대기 중.
+    return _wideButton(label: '준비 중...', onPressed: null);
   }
 
   Widget _wideButton({required String label, VoidCallback? onPressed}) {
