@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/capture_websocket_service.dart';
@@ -428,8 +430,12 @@ class _PrimaryAction extends StatelessWidget {
     return _wideButton(
       label: '러닝 종료',
       onPressed: () {
+        final elapsed = wsState.elapsedSec;
         wsVm.stopCapture();
         wsVm.sendStop();
+        // 측정 종료 화면으로 이동 (elapsedSec 전달).
+        // 백엔드 analysis_result 응답은 추후 분석 리포트 화면 단계에서 처리.
+        context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
       },
     );
   }
