@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/tts/tts_provider.dart';
+
 /// 촬영 설정 화면의 모드
 enum SetupMode {
   /// 가이드 + 인식 상태 + 버튼들 표시
@@ -64,6 +66,7 @@ class CaptureSetupViewModel extends Notifier<CaptureSetupState> {
       mode: SetupMode.countdown,
       countdownValue: 3,
     );
+    _speakCountdown(3);
 
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final next = state.countdownValue - 1;
@@ -71,9 +74,11 @@ class CaptureSetupViewModel extends Notifier<CaptureSetupState> {
         _countdownTimer?.cancel();
         _countdownTimer = null;
         state = state.copyWith(countdownValue: 0);
+        _speakStart();
         _onCountdownComplete?.call();
       } else {
         state = state.copyWith(countdownValue: next);
+        _speakCountdown(next);
       }
     });
   }
@@ -83,7 +88,21 @@ class CaptureSetupViewModel extends Notifier<CaptureSetupState> {
     _countdownTimer?.cancel();
     _countdownTimer = null;
     _onCountdownComplete = null;
+    // 재생 중인 카운트다운 음성도 함께 중단.
+    ref.read(ttsServiceProvider).stop();
     state = const CaptureSetupState();
+  }
+
+  void _speakCountdown(int value) {
+    // 한국어 TTS는 "3"을 "삼"으로 읽음. 우리말 카운트로 들리도록 한글로 직접 전달.
+    const map = {3: '셋', 2: '둘', 1: '하나'};
+    final text = map[value];
+    if (text == null) return;
+    ref.read(ttsServiceProvider).speak(text);
+  }
+
+  void _speakStart() {
+    ref.read(ttsServiceProvider).speak('시작');
   }
 }
 
