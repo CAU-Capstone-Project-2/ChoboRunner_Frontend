@@ -156,17 +156,24 @@ class _AnalysisSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 헤더: '러닝 분석' + 필터 아이콘
-            Row(
-              children: [
-                const Text('러닝 분석', style: AppTypography.cardHeading),
-                const Spacer(),
-                Icon(
-                  Icons.chevron_right,
-                  size: 24,
-                  color: AppColors.analysisText.withValues(alpha: 0.6),
+            // 헤더: '러닝 분석' + 진입 화살표 (탭 시 리포트 선택 화면으로)
+            InkWell(
+              onTap: () => context.push(AppRoutes.report),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    const Text('러닝 분석', style: AppTypography.cardHeading),
+                    const Spacer(),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 24,
+                      color: AppColors.analysisText.withValues(alpha: 0.6),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
             const SizedBox(height: 16),
             ...records.map((r) => Padding(

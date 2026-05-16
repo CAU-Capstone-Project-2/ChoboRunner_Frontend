@@ -5,6 +5,7 @@ import '../../features/capture/view/capture_finish_screen.dart';
 import '../../features/capture/view/capture_measuring_screen.dart';
 import '../../features/capture/view/capture_setup_screen.dart';
 import '../../features/home/view/home_screen.dart';
+import '../../features/report/view/report_list_screen.dart';
 
 /// 앱 라우팅 경로 상수
 ///
@@ -16,11 +17,11 @@ class AppRoutes {
   static const String captureSetup = '/capture/setup';
   static const String capture = '/capture';
   static const String captureFinish = '/capture/finish';
+  static const String report = '/report';
 
   // 미래 추가 예정
   // static const String login = '/auth/login';
   // static const String signup = '/auth/signup';
-  // static const String report = '/report';
   // static const String settings = '/settings';
 }
 
@@ -55,6 +56,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           final elapsedSec = int.tryParse(raw ?? '') ?? 0;
           return CaptureFinishScreen(elapsedSec: elapsedSec);
         },
+      ),
+      GoRoute(
+        path: AppRoutes.report,
+        name: 'report',
+        builder: (context, state) => const ReportListScreen(),
       ),
     ],
   );
