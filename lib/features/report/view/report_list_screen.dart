@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/report_session.dart';
@@ -72,22 +74,26 @@ class _SessionCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _PillButton(
-                  label: '분석 리포트',
-                  filled: true,
-                  onPressed: () {
-                    // 분석 리포트 화면 라우팅은 화면 구현 후 연결.
-                  },
+                child: Builder(
+                  builder: (context) => _PillButton(
+                    label: '분석 리포트',
+                    filled: true,
+                    onPressed: () => context.push(
+                      AppRoutes.analysisReport(session.id),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _PillButton(
-                  label: '하이라이트 피드백',
-                  filled: false,
-                  onPressed: () {
-                    // 하이라이트 피드백 화면 라우팅은 화면 구현 후 연결.
-                  },
+                child: Builder(
+                  builder: (context) => _PillButton(
+                    label: '하이라이트 피드백',
+                    filled: false,
+                    onPressed: () => context.push(
+                      AppRoutes.highlightFeedback(session.id),
+                    ),
+                  ),
                 ),
               ),
             ],
