@@ -5,6 +5,11 @@ import '../../features/capture/view/capture_finish_screen.dart';
 import '../../features/capture/view/capture_measuring_screen.dart';
 import '../../features/capture/view/capture_setup_screen.dart';
 import '../../features/home/view/home_screen.dart';
+import '../../features/report/model/report_metric.dart';
+import '../../features/report/view/analysis_report_screen.dart';
+import '../../features/report/view/highlight_feedback_screen.dart';
+import '../../features/report/view/metric_detail_screen.dart';
+import '../../features/report/view/report_list_screen.dart';
 
 /// 앱 라우팅 경로 상수
 ///
@@ -16,11 +21,23 @@ class AppRoutes {
   static const String captureSetup = '/capture/setup';
   static const String capture = '/capture';
   static const String captureFinish = '/capture/finish';
+  static const String report = '/report';
+
+  /// 분석 리포트 화면 경로 빌더 (`/report/:sessionId/analysis`).
+  static String analysisReport(String sessionId) =>
+      '/report/$sessionId/analysis';
+
+  /// 세부 지표 화면 경로 빌더 (`/report/:sessionId/metric/:metricType`).
+  static String metricDetail(String sessionId, String metricType) =>
+      '/report/$sessionId/metric/$metricType';
+
+  /// 하이라이트 피드백 화면 경로 빌더 (`/report/:sessionId/highlight`).
+  static String highlightFeedback(String sessionId) =>
+      '/report/$sessionId/highlight';
 
   // 미래 추가 예정
   // static const String login = '/auth/login';
   // static const String signup = '/auth/signup';
-  // static const String report = '/report';
   // static const String settings = '/settings';
 }
 
@@ -54,6 +71,40 @@ final routerProvider = Provider<GoRouter>((ref) {
           final raw = state.uri.queryParameters['elapsedSec'];
           final elapsedSec = int.tryParse(raw ?? '') ?? 0;
           return CaptureFinishScreen(elapsedSec: elapsedSec);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.report,
+        name: 'report',
+        builder: (context, state) => const ReportListScreen(),
+      ),
+      GoRoute(
+        path: '/report/:sessionId/analysis',
+        name: 'analysisReport',
+        builder: (context, state) {
+          final sessionId = state.pathParameters['sessionId']!;
+          return AnalysisReportScreen(sessionId: sessionId);
+        },
+      ),
+      GoRoute(
+        path: '/report/:sessionId/metric/:metricType',
+        name: 'metricDetail',
+        builder: (context, state) {
+          final sessionId = state.pathParameters['sessionId']!;
+          final metricName = state.pathParameters['metricType']!;
+          final metricType = MetricType.values.byName(metricName);
+          return MetricDetailScreen(
+            sessionId: sessionId,
+            metricType: metricType,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/report/:sessionId/highlight',
+        name: 'highlightFeedback',
+        builder: (context, state) {
+          final sessionId = state.pathParameters['sessionId']!;
+          return HighlightFeedbackScreen(sessionId: sessionId);
         },
       ),
     ],
