@@ -598,24 +598,9 @@ class _DebugPanel extends StatelessWidget {
               Expanded(
                 child: OutlinedButton(
                   onPressed: wsState.isConnected
-                      ? () async {
-                          final bytes = await cameraVm.captureFrame();
-                          if (bytes != null) wsVm.sendFrame(bytes);
-                        }
-                      : null,
-                  child: const Text(
-                    '수동 캡처',
-                    style: AppTypography.debugLabel,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: wsState.isConnected
                       ? () {
                           final dummy = Uint8List.fromList(List.filled(64, 0));
-                          wsVm.sendFrame(dummy);
+                          wsVm.sendFrame(dummy, tsMs: 0);
                         }
                       : null,
                   child: const Text(

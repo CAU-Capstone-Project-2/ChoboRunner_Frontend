@@ -103,16 +103,22 @@ class CaptureWebSocketService {
     }
   }
 
-  /// 카메라 프레임(JPEG bytes) 전송
+  /// 카메라 프레임(JPEG bytes) 전송.
   ///
-  /// 호출 측에서 이미 압축된 binary를 전달해야 함.
+  /// 백엔드 프로토콜: `[8B big-endian int64 ts_ms][JPEG bytes]` 단일 binary 메시지.
+  /// ts_ms는 단조시계 기준 ms이며 비감소여야 한다 (Stopwatch.elapsedMilliseconds 사용 권장).
+  ///
   /// 연결되지 않은 상태에서 호출하면 false 반환.
-  bool sendFrame(Uint8List frame) {
+  bool sendFrame(Uint8List jpegBytes, {required int tsMs}) {
     if (!isConnected || _channel == null) {
       return false;
     }
     try {
-      _channel!.sink.add(frame);
+      final framed = Uint8List(8 + jpegBytes.length);
+      final header = ByteData.view(framed.buffer, 0, 8);
+      header.setInt64(0, tsMs, Endian.big);
+      framed.setRange(8, framed.length, jpegBytes);
+      _channel!.sink.add(framed);
       return true;
     } catch (_) {
       return false;

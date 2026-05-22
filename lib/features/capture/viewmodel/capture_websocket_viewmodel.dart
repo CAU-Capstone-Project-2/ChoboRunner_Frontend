@@ -154,12 +154,15 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     await _service.disconnect();
   }
 
-  /// 카메라 프레임 전송
-  bool sendFrame(Uint8List frame) {
-    return _service.sendFrame(frame);
+  /// 카메라 프레임 전송 (디버그용 직접 호출).
+  ///
+  /// production 송신은 [CaptureLoopController]를 통해 자동으로 일어남.
+  /// tsMs는 호출 측이 단조시계 기준 ms로 채워줘야 한다.
+  bool sendFrame(Uint8List frame, {required int tsMs}) {
+    return _service.sendFrame(frame, tsMs: tsMs);
   }
 
-  /// 측정 시작 — 카메라 캡처 루프 가동
+  /// 측정 시작 — 카메라 캡처 루프 가동 (내부에서 image stream도 시작)
   void startCapture() {
     _loop.reset();
     _loop.start();
