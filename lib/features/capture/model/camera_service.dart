@@ -56,7 +56,7 @@ class CameraService {
 
     _controller = CameraController(
       camera,
-      ResolutionPreset.medium, // 640x480 정도
+      ResolutionPreset.high, // 1280x720 정도. 백엔드 권장 720p.
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );

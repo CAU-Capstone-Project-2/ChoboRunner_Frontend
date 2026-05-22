@@ -3,11 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/tts/tts_provider.dart';
+import '../../../core/tts/tts_service.dart';
 import '../model/analysis_progress_message.dart';
 import '../model/analysis_result_message.dart';
 import '../model/camera_service.dart';
 import '../model/capture_loop_controller.dart';
 import '../model/capture_websocket_service.dart';
+import '../model/feedback_item.dart';
 import '../model/server_message.dart';
 import 'camera_provider.dart';
 import 'capture_websocket_provider.dart';
@@ -110,14 +113,26 @@ class CaptureWebSocketState {
 class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   late final CaptureWebSocketService _service;
   late final CaptureLoopController _loop;
+  late final TtsService _tts;
   StreamSubscription<ConnectionStatus>? _statusSub;
   StreamSubscription<ServerMessage>? _messageSub;
   Stopwatch? _stopwatch;
   Timer? _elapsedTimer;
 
+  /// 직전에 TTS로 발화한 텍스트 (중복 발화 방지)
+  String? _lastSpokenText;
+
+  /// 같은 metric 재발화 최소 간격 (cooldown).
+  /// 같은 자세 경고가 짧은 간격으로 반복 도착해도 사용자 귀를 덜 피곤하게 한다.
+  static const Duration _ttsRepeatCooldown = Duration(seconds: 4);
+
+  /// metric별 마지막 발화 시각
+  final Map<String, DateTime> _lastSpokenAt = {};
+
   @override
   CaptureWebSocketState build() {
     _service = ref.read(captureWebSocketServiceProvider);
+    _tts = ref.read(ttsServiceProvider);
     final CameraService cameraService = ref.read(cameraServiceProvider);
 
     _loop = CaptureLoopController(
@@ -167,6 +182,10 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _loop.reset();
     _loop.start();
 
+    // TTS 발화 이력 리셋 — 새 측정 세션이므로 직전 측정의 발화 가드와 무관하게 다시 안내.
+    _lastSpokenText = null;
+    _lastSpokenAt.clear();
+
     // 러닝 시간 측정 시작 (클라이언트 자체)
     _stopwatch = Stopwatch()..start();
     state = state.copyWith(elapsedSec: 0);
@@ -183,6 +202,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   /// 측정 정지 — 캡처 루프 멈춤 (stop 메시지는 별도)
   void stopCapture() {
     _loop.stop();
+
+    // 진행 중이던 TTS가 있으면 정지 (분석 결과 화면 이동 시 잔여 음성 차단)
+    _tts.stop();
 
     // 러닝 시간 측정 정지 (현재 elapsedSec 값은 유지)
     _elapsedTimer?.cancel();
@@ -230,6 +252,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
           progressCount: state.progressCount + 1,
           clearError: true,
         );
+        _maybeSpeakFeedback(data.ttsItem);
 
       case AnalysisResultServerMessage(:final data):
         // 최종 결과 도착. 측정 종료 시점.
@@ -245,6 +268,34 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         // 명세에 없는 type. 무시.
         break;
     }
+  }
+
+  /// 자세 경고 항목을 TTS로 발화. 중복 발화/짧은 간격 반복 방지.
+  ///
+  /// 가드:
+  /// - ttsText 비어있으면 skip
+  /// - 직전 발화 텍스트와 동일하면 skip
+  /// - 같은 metric을 [_ttsRepeatCooldown] 이내에 다시 받으면 skip
+  void _maybeSpeakFeedback(FeedbackItem? item) {
+    if (item == null) return;
+
+    final text = item.ttsText?.trim();
+    if (text == null || text.isEmpty) return;
+
+    if (text == _lastSpokenText) return;
+
+    final metric = item.metric;
+    if (metric != null) {
+      final lastAt = _lastSpokenAt[metric];
+      if (lastAt != null &&
+          DateTime.now().difference(lastAt) < _ttsRepeatCooldown) {
+        return;
+      }
+      _lastSpokenAt[metric] = DateTime.now();
+    }
+
+    _lastSpokenText = text;
+    _tts.speak(text);
   }
 }
 

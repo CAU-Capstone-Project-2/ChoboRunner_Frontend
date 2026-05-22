@@ -16,7 +16,7 @@ class FrameEncoderInput {
     required this.width,
     required this.height,
     required this.rotationDegrees,
-    this.jpegQuality = 70,
+    this.jpegQuality = 85,
   });
 
   final Uint8List yPlane;
