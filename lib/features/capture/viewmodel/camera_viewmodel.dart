@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -109,11 +107,6 @@ class CameraViewModel extends Notifier<CameraState> {
     }
   }
 
-  /// 단일 프레임 캡처
-  Future<Uint8List?> captureFrame() async {
-    if (!state.isReady) return null;
-    return _service.captureFrameBytes();
-  }
 }
 
 /// 카메라 ViewModel Provider

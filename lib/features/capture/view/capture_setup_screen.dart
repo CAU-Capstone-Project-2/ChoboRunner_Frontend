@@ -80,6 +80,7 @@ class _CaptureSetupScreenState extends ConsumerState<CaptureSetupScreen> {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: AppColors.surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -366,52 +367,56 @@ class _GuideSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 핸들바
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 핸들바
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text('촬영 가이드', style: AppTypography.displayMedium),
-            const SizedBox(height: 16),
-            ..._guides.asMap().entries.map((entry) {
-              final index = entry.key + 1;
-              final text = entry.value;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 24,
-                      child: Text(
-                        '$index.',
-                        style: AppTypography.body.copyWith(
-                          color: AppColors.primaryAction,
-                          fontWeight: FontWeight.w700,
+              const SizedBox(height: 16),
+              const Text('촬영 가이드', style: AppTypography.displayMedium),
+              const SizedBox(height: 16),
+              ..._guides.asMap().entries.map((entry) {
+                final index = entry.key + 1;
+                final text = entry.value;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        child: Text(
+                          '$index.',
+                          style: AppTypography.body.copyWith(
+                            color: AppColors.primaryAction,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    ),
-                    Expanded(child: Text(text, style: AppTypography.body)),
-                  ],
-                ),
-              );
-            }),
-            const SizedBox(height: 8),
-          ],
+                      Expanded(child: Text(text, style: AppTypography.body)),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
