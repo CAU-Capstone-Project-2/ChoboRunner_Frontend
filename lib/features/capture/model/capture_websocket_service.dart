@@ -141,6 +141,18 @@ class CaptureWebSocketService {
     }
   }
 
+  /// 세션 시작 메타데이터 전송. 첫 binary frame 전에 호출해야 함.
+  bool sendSessionStart({
+    required String analysisSide,
+    required String direction,
+  }) {
+    return sendText(
+      '{"type":"session_start",'
+      '"analysis_side":"$analysisSide",'
+      '"direction":"$direction"}',
+    );
+  }
+
   /// 측정 세션 종료 신호 송신
   ///
   /// 백엔드 명세에 따라 text frame {"type":"stop"} 전송.
@@ -158,10 +170,14 @@ class CaptureWebSocketService {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
 
-    await _subscription?.cancel();
+    try {
+      await _subscription?.cancel();
+    } catch (_) {}
     _subscription = null;
 
-    await _channel?.sink.close(ws_status.normalClosure);
+    try {
+      await _channel?.sink.close(ws_status.normalClosure);
+    } catch (_) {}
     _channel = null;
 
     _setStatus(ConnectionStatus.disconnected);
@@ -177,20 +193,16 @@ class CaptureWebSocketService {
   // ─────────── 내부 핸들러 ───────────
 
   void _handleMessage(dynamic data) {
-    // ignore: avoid_print
-    print('[WS] message received: type=${data.runtimeType}, length=${data is String ? data.length : data is List ? data.length : "?"}');
-
     if (data is String) {
-      // ignore: avoid_print
-      print('[WS] text first 200: ${data.length > 200 ? data.substring(0, 200) : data}');
-
       final parsed = ServerMessage.tryParse(data);
       if (parsed == null) {
         // ignore: avoid_print
-        print('[WS] PARSE FAILED');
-      } else {
+        print('[WS] PARSE FAILED: $data');
+      } else if (parsed is! FrameInferenceServerMessage) {
         // ignore: avoid_print
-        print('[WS] parsed type: ${parsed.runtimeType}');
+        print('[WS] $data');
+      }
+      if (parsed != null) {
         _messageController.add(parsed);
       }
     } else if (data is List<int>) {
@@ -203,6 +215,7 @@ class CaptureWebSocketService {
   void _handleError(Object error) {
     // ignore: avoid_print
     print('[WS] stream error: $error');
+    if (_intentionallyClosed) return;
     _setStatus(ConnectionStatus.error);
     _scheduleReconnectIfNeeded();
   }

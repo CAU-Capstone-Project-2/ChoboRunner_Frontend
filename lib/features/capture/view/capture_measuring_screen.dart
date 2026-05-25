@@ -52,7 +52,6 @@ class _CaptureMeasuringScreenState
   @override
   void dispose() {
     _reconnectTimer?.cancel();
-    _wsVm?.disconnect();
     super.dispose();
   }
 
@@ -330,11 +329,6 @@ class _RecognitionStatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 단계 B에서 백엔드의 pose_detected 누적 추적으로 결정.
-    // 지금은 연결 상태로 임시 매핑:
-    // - connected & capturing → 인식 중 (노랑)
-    // - connected & not capturing → 준비됨 (초록)
-    // - 그 외 → 인식 안 됨 (빨강)
     final (color, label) = _resolveStatus(wsState);
 
     return Row(
@@ -356,12 +350,15 @@ class _RecognitionStatusRow extends StatelessWidget {
 
   (Color, String) _resolveStatus(CaptureWebSocketState s) {
     if (!s.isConnected) {
-      return (AppColors.statusError, '사용자가 인식되지 않았습니다');
+      return (AppColors.statusConnecting, '서버에 연결하는 중입니다');
     }
-    if (s.isCapturing) {
-      return (AppColors.statusPending, '사용자를 인식하는 중입니다');
+    if (!s.isCapturing) {
+      return (AppColors.statusPending, '캡처 준비 중입니다');
     }
-    return (AppColors.statusOk, '사용자가 인식되었습니다');
+    if (s.lastPoseDetected) {
+      return (AppColors.statusOk, '사용자가 인식되었습니다');
+    }
+    return (AppColors.statusError, '사용자가 인식되지 않았습니다');
   }
 }
 

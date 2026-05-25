@@ -54,7 +54,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () {
             ref.read(authViewModelProvider.notifier).clearError();
-            context.pop();
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(AppRoutes.authStart);
+            }
           },
         ),
       ),
