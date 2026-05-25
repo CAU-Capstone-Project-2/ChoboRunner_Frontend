@@ -193,7 +193,7 @@ class _AnalysisSection extends StatelessWidget {
                     ),
                   );
                 }
-                final display = sessions.take(5).toList();
+                final display = sessions.take(3).toList();
                 return Column(
                   children: display
                       .map((s) => Padding(
@@ -237,7 +237,7 @@ class _RecordEntry extends StatelessWidget {
                 Text(
                   _formatDuration(session.duration),
                   style: AppTypography.cardBody.copyWith(
-                    color: AppColors.textSecondary,
+                    color: AppColors.analysisText.withValues(alpha: 0.6),
                     fontSize: 13,
                   ),
                 ),
