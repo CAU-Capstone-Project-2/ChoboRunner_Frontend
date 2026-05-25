@@ -9,10 +9,6 @@ import '../../../core/theme/app_typography.dart';
 import '../model/report_metric.dart';
 import '../viewmodel/analysis_report_viewmodel.dart';
 
-/// 분석 리포트 화면.
-///
-/// 상단: 3개 항목의 점수 게이지(BarChart + 점수 원 오버레이).
-/// 하단: 전체 피드백 내용 헤더 + 항목별 진입 카드(세부 지표 화면으로 이동).
 class AnalysisReportScreen extends ConsumerWidget {
   const AnalysisReportScreen({super.key, required this.sessionId});
 
@@ -20,7 +16,7 @@ class AnalysisReportScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final report = ref.watch(analysisReportProvider(sessionId));
+    final asyncReport = ref.watch(analysisReportProvider(sessionId));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -32,45 +28,77 @@ class AnalysisReportScreen extends ConsumerWidget {
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
       body: SafeArea(
-        child: report == null
-            ? const Center(
+        child: asyncReport.when(
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.textPrimary),
+          ),
+          error: (err, _) => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('리포트를 불러올 수 없습니다.',
+                    style: AppTypography.bodyMuted),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () =>
+                      ref.invalidate(analysisReportProvider(sessionId)),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          ),
+          data: (report) {
+            if (report == null) {
+              return const Center(
                 child: Text(
-                  '리포트를 찾을 수 없습니다.',
+                  '아직 분석 리포트가 생성되지 않았습니다.\n잠시 후 다시 시도해주세요.',
+                  textAlign: TextAlign.center,
                   style: AppTypography.bodyMuted,
                 ),
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                children: [
+              );
+            }
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              children: [
+                if (report.metrics.isNotEmpty)
                   _ScoreChartCard(metrics: report.metrics),
-                  const SizedBox(height: 24),
+                const SizedBox(height: 24),
+                if (report.totalFeedback != null &&
+                    report.totalFeedback!.isNotEmpty) ...[
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Text('전체 피드백 내용',
+                        style: AppTypography.displayMedium),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: Text(
-                      '전체 피드백 내용',
-                      style: AppTypography.displayMedium,
+                      report.totalFeedback!,
+                      style: AppTypography.body.copyWith(fontSize: 14),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  ...report.metrics.map(
-                    (m) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _MetricEntryCard(
-                        metric: m,
-                        onTap: () => context.push(
-                          AppRoutes.metricDetail(sessionId, m.type.name),
-                        ),
+                  const SizedBox(height: 20),
+                ],
+                ...report.metrics.map(
+                  (m) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _MetricEntryCard(
+                      metric: m,
+                      onTap: () => context.push(
+                        AppRoutes.metricDetail(sessionId, m.type.name),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 }
-
-// ─────────── 상단 점수 차트 카드 ───────────
 
 class _ScoreChartCard extends StatelessWidget {
   const _ScoreChartCard({required this.metrics});
@@ -107,14 +135,11 @@ class _ScoreChartCard extends StatelessWidget {
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
                     leftTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+                        sideTitles: SideTitles(showTitles: false)),
                     rightTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+                        sideTitles: SideTitles(showTitles: false)),
                     topTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+                        sideTitles: SideTitles(showTitles: false)),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -141,12 +166,13 @@ class _ScoreChartCard extends StatelessWidget {
                   ),
                   barGroups: List.generate(metrics.length, (i) {
                     final m = metrics[i];
-                    final color = _scoreColor(m.score);
+                    final score = m.displayScore.toDouble();
+                    final color = _scoreColor(m.displayScore);
                     return BarChartGroupData(
                       x: i,
                       barRods: [
                         BarChartRodData(
-                          toY: m.score.toDouble(),
+                          toY: score,
                           color: color,
                           width: 22,
                           borderRadius: BorderRadius.circular(12),
@@ -162,7 +188,6 @@ class _ScoreChartCard extends StatelessWidget {
                 ),
               ),
             ),
-            // 각 바의 상단에 점수 원을 오버레이
             Positioned.fill(
               bottom: _labelHeight,
               child: LayoutBuilder(
@@ -171,16 +196,17 @@ class _ScoreChartCard extends StatelessWidget {
                   return Row(
                     children: List.generate(metrics.length, (i) {
                       final m = metrics[i];
-                      // 점수가 0~100 일 때 막대의 top 위치 (위에서부터)
-                      final fillRatio = (m.score / 100).clamp(0.0, 1.0);
-                      final topOffset = (1 - fillRatio) * (barAreaHeight - _topPadding);
+                      final fillRatio =
+                          (m.displayScore / 100).clamp(0.0, 1.0);
+                      final topOffset =
+                          (1 - fillRatio) * (barAreaHeight - _topPadding);
                       return Expanded(
                         child: Stack(
                           alignment: Alignment.topCenter,
                           children: [
                             Padding(
                               padding: EdgeInsets.only(top: topOffset),
-                              child: _ScoreCircle(score: m.score),
+                              child: _ScoreCircle(score: m.displayScore),
                             ),
                           ],
                         ),
@@ -214,7 +240,7 @@ class _ScoreCircle extends StatelessWidget {
         border: Border.all(color: color, width: 2),
       ),
       child: Text(
-        '$score',
+        score == 0 ? '-' : '$score',
         style: TextStyle(
           color: color,
           fontSize: 13,
@@ -225,8 +251,6 @@ class _ScoreCircle extends StatelessWidget {
   }
 }
 
-// ─────────── 하단 항목별 진입 카드 ───────────
-
 class _MetricEntryCard extends StatelessWidget {
   const _MetricEntryCard({required this.metric, required this.onTap});
 
@@ -235,7 +259,7 @@ class _MetricEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _scoreColor(metric.score);
+    final color = _scoreColor(metric.displayScore);
     return Material(
       color: AppColors.analysisCard,
       borderRadius: BorderRadius.circular(16),
@@ -248,31 +272,49 @@ class _MetricEntryCard extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Text(
-                  metric.label,
-                  style: AppTypography.cardBody.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      metric.label,
+                      style: AppTypography.cardBody.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (metric.status != null)
+                      Text(
+                        metric.status!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: metric.status == '주의'
+                              ? AppColors.scoreLow
+                              : AppColors.scoreHigh,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              Container(
-                width: 36,
-                height: 36,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color, width: 2),
-                ),
-                child: Text(
-                  '${metric.score}',
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+              if (metric.score != null)
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 2),
+                  ),
+                  child: Text(
+                    '${metric.score}',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-              ),
               const SizedBox(width: 8),
               Icon(
                 Icons.chevron_right,

@@ -8,16 +8,12 @@ import '../../../core/theme/app_typography.dart';
 import '../model/report_session.dart';
 import '../viewmodel/report_list_viewmodel.dart';
 
-/// 리포트 선택 화면.
-///
-/// 측정 세션 리스트를 표시하고, 각 세션에 대해
-/// '분석 리포트' / '하이라이트 피드백' 두 진입점을 제공.
 class ReportListScreen extends ConsumerWidget {
   const ReportListScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sessions = ref.watch(reportListProvider);
+    final asyncSessions = ref.watch(reportListProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -29,11 +25,39 @@ class ReportListScreen extends ConsumerWidget {
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
       body: SafeArea(
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          itemCount: sessions.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, i) => _SessionCard(session: sessions[i]),
+        child: asyncSessions.when(
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.textPrimary),
+          ),
+          error: (err, _) => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('데이터를 불러올 수 없습니다.',
+                    style: AppTypography.bodyMuted),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => ref.invalidate(reportListProvider),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          ),
+          data: (sessions) {
+            if (sessions.isEmpty) {
+              return const Center(
+                child: Text('완료된 러닝 기록이 없습니다.',
+                    style: AppTypography.bodyMuted),
+              );
+            }
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              itemCount: sessions.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, i) =>
+                  _SessionCard(session: sessions[i]),
+            );
+          },
         ),
       ),
     );
@@ -59,15 +83,26 @@ class _SessionCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  _formatDate(session.date),
-                  style: AppTypography.body.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _formatDate(session.date),
+                      style: AppTypography.body.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (session.duration != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatDuration(session.duration!),
+                        style: AppTypography.bodyMuted.copyWith(fontSize: 13),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              _ScoreCircle(score: session.score),
             ],
           ),
           const SizedBox(height: 12),
@@ -107,40 +142,15 @@ class _SessionCard extends StatelessWidget {
     final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
-    return '$y-$m-$day';
-  }
-}
-
-class _ScoreCircle extends StatelessWidget {
-  const _ScoreCircle({required this.score});
-  final int score;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _scoreColor(score);
-    return Container(
-      width: 40,
-      height: 40,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: 2),
-      ),
-      child: Text(
-        '$score',
-        style: TextStyle(
-          color: color,
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+    final h = d.hour.toString().padLeft(2, '0');
+    final min = d.minute.toString().padLeft(2, '0');
+    return '$y-$m-$day $h:$min';
   }
 
-  static Color _scoreColor(int score) {
-    if (score >= 75) return AppColors.scoreHigh;
-    if (score >= 60) return AppColors.scoreMid;
-    return AppColors.scoreLow;
+  String _formatDuration(int sec) {
+    final mm = (sec ~/ 60).toString();
+    final ss = (sec % 60).toString().padLeft(2, '0');
+    return '$mm분 $ss초';
   }
 }
 

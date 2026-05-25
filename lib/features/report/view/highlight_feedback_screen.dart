@@ -6,11 +6,6 @@ import '../../../core/theme/app_typography.dart';
 import '../model/highlight_feedback.dart';
 import '../viewmodel/highlight_feedback_viewmodel.dart';
 
-/// 하이라이트 피드백 화면.
-///
-/// 상단: 하이라이트된 영상 영역 placeholder.
-/// 중단: 영상 시간대 라벨 + 전체 영상 길이 대비 하이라이트 구간 타임라인 바.
-/// 하단: 사용자 러닝 피드백 문구.
 class HighlightFeedbackScreen extends ConsumerWidget {
   const HighlightFeedbackScreen({super.key, required this.sessionId});
 
@@ -18,7 +13,7 @@ class HighlightFeedbackScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final feedback = ref.watch(highlightFeedbackProvider(sessionId));
+    final asyncFeedback = ref.watch(highlightFeedbackProvider(sessionId));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -30,43 +25,73 @@ class HighlightFeedbackScreen extends ConsumerWidget {
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
       body: SafeArea(
-        child: feedback == null
-            ? const Center(
+        child: asyncFeedback.when(
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.textPrimary),
+          ),
+          error: (err, _) => Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('데이터를 불러올 수 없습니다.',
+                    style: AppTypography.bodyMuted),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () =>
+                      ref.invalidate(highlightFeedbackProvider(sessionId)),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
+          ),
+          data: (feedback) {
+            if (feedback == null) {
+              return const Center(
                 child: Text(
-                  '하이라이트 피드백을 찾을 수 없습니다.',
+                  '하이라이트 피드백이 없습니다.',
                   style: AppTypography.bodyMuted,
                 ),
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const _VideoPlaceholder(),
-                    const SizedBox(height: 28),
+              );
+            }
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const _VideoPlaceholder(),
+                  const SizedBox(height: 28),
+                  if (feedback.segments.isNotEmpty) ...[
                     _TimelineLabel(segments: feedback.segments),
                     const SizedBox(height: 12),
                     _TimelineBar(
                       totalDuration: feedback.totalDuration,
                       segments: feedback.segments,
                     ),
-                    const SizedBox(height: 32),
-                    Center(
-                      child: Text(
-                        feedback.message,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.body.copyWith(fontSize: 15),
+                    const SizedBox(height: 24),
+                    ...feedback.segments.map(
+                      (seg) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _SegmentCard(segment: seg),
                       ),
                     ),
+                    const SizedBox(height: 8),
                   ],
-                ),
+                  Center(
+                    child: Text(
+                      feedback.message,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body.copyWith(fontSize: 15),
+                    ),
+                  ),
+                ],
               ),
+            );
+          },
+        ),
       ),
     );
   }
 }
-
-// ─────────── 영상 영역 placeholder ───────────
 
 class _VideoPlaceholder extends StatelessWidget {
   const _VideoPlaceholder();
@@ -94,8 +119,6 @@ class _VideoPlaceholder extends StatelessWidget {
   }
 }
 
-// ─────────── 시간대 라벨 ───────────
-
 class _TimelineLabel extends StatelessWidget {
   const _TimelineLabel({required this.segments});
   final List<HighlightSegment> segments;
@@ -119,8 +142,6 @@ class _TimelineLabel extends StatelessWidget {
     return '$m:$s';
   }
 }
-
-// ─────────── 타임라인 바 ───────────
 
 class _TimelineBar extends StatelessWidget {
   const _TimelineBar({
@@ -157,8 +178,8 @@ class _TimelineBar extends StatelessWidget {
                   final endRatio =
                       (seg.end.inMilliseconds / totalMs).clamp(0.0, 1.0);
                   final left = startRatio * width;
-                  final markerWidth =
-                      ((endRatio - startRatio) * width).clamp(_minMarkerWidth, width);
+                  final markerWidth = ((endRatio - startRatio) * width)
+                      .clamp(_minMarkerWidth, width);
                   return Positioned(
                     left: left,
                     top: 0,
@@ -177,5 +198,62 @@ class _TimelineBar extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _SegmentCard extends StatelessWidget {
+  const _SegmentCard({required this.segment});
+  final HighlightSegment segment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.divider, width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.primaryAction,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_format(segment.start)} ~ ${_format(segment.end)}'
+                  '${segment.issueType != null ? '  [${segment.issueType}]' : ''}',
+                  style: AppTypography.bodyMuted.copyWith(fontSize: 12),
+                ),
+                if (segment.message != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    segment.message!,
+                    style: AppTypography.body.copyWith(fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _format(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 }

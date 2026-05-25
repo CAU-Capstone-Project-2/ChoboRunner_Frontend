@@ -1,12 +1,40 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../model/analysis_report.dart';
+import '../model/report_api_service.dart';
+import '../model/report_metric.dart';
 
-/// 세션 ID로 분석 리포트를 조회하는 family Provider.
-///
-/// 현재는 mock 데이터 맵에서 조회. 추후 백엔드 연동 시
-/// FutureProvider.family로 교체하면 화면 쪽 변경 없이 비동기화 가능하도록 의도.
 final analysisReportProvider =
-    Provider.family<AnalysisReport?, String>((ref, sessionId) {
-  return mockAnalysisReports[sessionId];
+    FutureProvider.family<AnalysisReport?, String>((ref, runId) async {
+  final api = ReportApiService();
+
+  final reports = await api.getReportsByRun(runId);
+  if (reports.isEmpty) return null;
+
+  final report = reports.first;
+  final reportId = report['id'].toString();
+  final totalFeedback = report['totalFeedback'] as String?;
+
+  final details = await api.getDetailedReports(reportId);
+
+  final metrics = details
+      .map((json) {
+        final type = MetricType.fromBackendType(json['type'] as String?);
+        if (type == null) return null;
+        return ReportMetric.fromJson(json);
+      })
+      .whereType<ReportMetric>()
+      .toList();
+
+  final scores = metrics.map((m) => m.score).whereType<int>();
+  final overallScore = scores.isEmpty
+      ? 0
+      : (scores.reduce((a, b) => a + b) / scores.length).round();
+
+  return AnalysisReport(
+    sessionId: runId,
+    overallScore: overallScore,
+    totalFeedback: totalFeedback,
+    metrics: metrics,
+  );
 });

@@ -6,10 +6,6 @@ import '../../../core/theme/app_typography.dart';
 import '../model/report_metric.dart';
 import '../viewmodel/analysis_report_viewmodel.dart';
 
-/// 세부 지표 화면.
-///
-/// 분석 리포트 → 항목별 카드 탭으로 진입. 단일 metric의 점수와
-/// 부위별 피드백 요약 / 문제점 / 개선 방법 / 지표 점수들(기준값 vs 측정값)을 표시.
 class MetricDetailScreen extends ConsumerWidget {
   const MetricDetailScreen({
     super.key,
@@ -22,11 +18,7 @@ class MetricDetailScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final report = ref.watch(analysisReportProvider(sessionId));
-    final metric = report?.metrics.firstWhere(
-      (m) => m.type == metricType,
-      orElse: () => ReportMetric(type: metricType, score: 0),
-    );
+    final asyncReport = ref.watch(analysisReportProvider(sessionId));
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -38,49 +30,68 @@ class MetricDetailScreen extends ConsumerWidget {
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
       ),
       body: SafeArea(
-        child: metric == null
-            ? const Center(
-                child: Text(
-                  '리포트를 찾을 수 없습니다.',
-                  style: AppTypography.bodyMuted,
-                ),
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _Header(metric: metric),
-                    const SizedBox(height: 36),
-                    _Section(
-                      title: '부위별 피드백 요약',
-                      body: metric.summary ?? '데이터가 없습니다.',
-                    ),
-                    const SizedBox(height: 28),
-                    _Section(
-                      title: '문제점',
-                      body: metric.problem ?? '특이사항이 없습니다.',
-                    ),
-                    const SizedBox(height: 28),
-                    _Section(
-                      title: '개선 방법',
-                      body: metric.improvement ?? '데이터가 없습니다.',
-                    ),
-                    const SizedBox(height: 28),
-                    _ScoreComparison(
-                      reference: metric.referenceValue,
-                      measured: metric.measuredValue,
-                      unit: metric.unit,
-                    ),
-                  ],
-                ),
+        child: asyncReport.when(
+          loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.textPrimary),
+          ),
+          error: (err, _) => const Center(
+            child:
+                Text('데이터를 불러올 수 없습니다.', style: AppTypography.bodyMuted),
+          ),
+          data: (report) {
+            if (report == null) {
+              return const Center(
+                child: Text('리포트를 찾을 수 없습니다.',
+                    style: AppTypography.bodyMuted),
+              );
+            }
+            final metric = report.metrics.cast<ReportMetric?>().firstWhere(
+                  (m) => m!.type == metricType,
+                  orElse: () => null,
+                );
+            if (metric == null) {
+              return const Center(
+                child: Text('해당 지표 데이터가 없습니다.',
+                    style: AppTypography.bodyMuted),
+              );
+            }
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _Header(metric: metric),
+                  const SizedBox(height: 36),
+                  _Section(
+                    title: '부위별 피드백 요약',
+                    body: metric.summary ?? '데이터가 없습니다.',
+                  ),
+                  const SizedBox(height: 28),
+                  _Section(
+                    title: '문제점',
+                    body: metric.problem ?? '특이사항이 없습니다.',
+                  ),
+                  const SizedBox(height: 28),
+                  _Section(
+                    title: '개선 방법',
+                    body: metric.improvement ?? '데이터가 없습니다.',
+                  ),
+                  const SizedBox(height: 28),
+                  _ScoreComparison(
+                    reference: metric.referenceValue,
+                    measured: metric.measuredValue,
+                    unit: metric.unit,
+                    status: metric.status,
+                  ),
+                ],
               ),
+            );
+          },
+        ),
       ),
     );
   }
 }
-
-// ─────────── 헤더: 큰 타이틀 + 점수 원 ───────────
 
 class _Header extends StatelessWidget {
   const _Header({required this.metric});
@@ -104,7 +115,7 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        _LargeScoreCircle(score: metric.score),
+        if (metric.score != null) _LargeScoreCircle(score: metric.score!),
       ],
     );
   }
@@ -137,8 +148,6 @@ class _LargeScoreCircle extends StatelessWidget {
   }
 }
 
-// ─────────── 일반 섹션 (라임 헤더 + 본문) ───────────
-
 class _Section extends StatelessWidget {
   const _Section({required this.title, required this.body});
   final String title;
@@ -163,18 +172,18 @@ class _Section extends StatelessWidget {
   }
 }
 
-// ─────────── 지표 점수들 섹션 (기준 값 / 측정 값) ───────────
-
 class _ScoreComparison extends StatelessWidget {
   const _ScoreComparison({
     required this.reference,
     required this.measured,
     required this.unit,
+    this.status,
   });
 
   final double? reference;
   final double? measured;
   final String? unit;
+  final String? status;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +210,29 @@ class _ScoreComparison extends StatelessWidget {
             ),
           ],
         ),
+        if (status != null) ...[
+          const SizedBox(height: 16),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: status == '주의'
+                    ? AppColors.scoreLow.withValues(alpha: 0.15)
+                    : AppColors.scoreHigh.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                status!,
+                style: TextStyle(
+                  color:
+                      status == '주의' ? AppColors.scoreLow : AppColors.scoreHigh,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -221,10 +253,7 @@ class _ValueColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-          label,
-          style: AppTypography.bodyMuted.copyWith(fontSize: 14),
-        ),
+        Text(label, style: AppTypography.bodyMuted.copyWith(fontSize: 14)),
         const SizedBox(height: 8),
         Text(
           value == null ? '-' : '${_formatValue(value!)}${unit ?? ''}',
@@ -243,8 +272,6 @@ class _ValueColumn extends StatelessWidget {
     return v.toStringAsFixed(1);
   }
 }
-
-// ─────────── 공통 ───────────
 
 const TextStyle _sectionTitleStyle = TextStyle(
   color: AppColors.primaryAction,
