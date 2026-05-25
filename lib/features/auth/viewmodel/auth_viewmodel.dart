@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/storage/current_user_store.dart';
 import '../model/user.dart';
 import '../model/user_api_service.dart';
-import 'session_store.dart';
 
 /// 로그인 상태.
 ///
@@ -45,7 +45,7 @@ class AuthState {
 
 class AuthViewModel extends Notifier<AuthState> {
   late final UserApiService _api;
-  late final SessionStore _store;
+  late final CurrentUserStore _store;
 
   @override
   AuthState build() {
@@ -128,8 +128,8 @@ final userApiServiceProvider = Provider<UserApiService>((ref) {
   return UserApiService();
 });
 
-final sessionStoreProvider = Provider<SessionStore>((ref) {
-  return SessionStore();
+final sessionStoreProvider = Provider<CurrentUserStore>((ref) {
+  return CurrentUserStore();
 });
 
 final authViewModelProvider =
