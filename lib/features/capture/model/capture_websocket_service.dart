@@ -66,20 +66,23 @@ class CaptureWebSocketService {
 
   bool get isConnected => _status == ConnectionStatus.connected;
 
-  /// WebSocket 연결 시작
-  Future<void> connect() async {
+  /// WebSocket 연결 시작. [runId]가 있으면 URL에 ?runId= 쿼리 파라미터 추가.
+  Future<void> connect({String? runId}) async {
     if (_status == ConnectionStatus.connecting ||
         _status == ConnectionStatus.connected) {
       return;
     }
 
     _intentionallyClosed = false;
+    final connectUri = runId != null
+        ? uri.replace(queryParameters: {'runId': runId})
+        : uri;
     // ignore: avoid_print
-    print('[WS] connecting to $uri');
+    print('[WS] connecting to $connectUri');
     _setStatus(ConnectionStatus.connecting);
 
     try {
-      _channel = WebSocketChannel.connect(uri);
+      _channel = WebSocketChannel.connect(connectUri);
 
       // ready를 기다려 핸드셰이크 완료 시점을 명확히 함
       await _channel!.ready;

@@ -56,14 +56,27 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Center(
-        child: Text(
-          'Chobo Runner',
-          textAlign: TextAlign.center,
-          style: AppTypography.brandTitle,
-        ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          const SizedBox(width: 40),
+          const Expanded(
+            child: Text(
+              'Chobo Runner',
+              textAlign: TextAlign.center,
+              style: AppTypography.brandTitle,
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: IconButton(
+              icon: const Icon(Icons.settings, color: AppColors.textPrimary),
+              onPressed: () => context.push(AppRoutes.settings),
+              padding: EdgeInsets.zero,
+            ),
+          ),
+        ],
       ),
     );
   }
