@@ -65,6 +65,9 @@ class CaptureWebSocketState {
   /// 최근 frame_inference의 pose_detected 값.
   final bool lastPoseDetected;
 
+  /// 가장 최근 수신된 피드백 항목. 다음 피드백이 올 때까지 유지.
+  final FeedbackItem? latestFeedbackItem;
+
   const CaptureWebSocketState({
     this.status = ConnectionStatus.disconnected,
     this.latestProgress,
@@ -80,6 +83,7 @@ class CaptureWebSocketState {
     this.elapsedSec = 0,
     this.currentRunId,
     this.lastPoseDetected = false,
+    this.latestFeedbackItem,
   });
 
   CaptureWebSocketState copyWith({
@@ -97,6 +101,7 @@ class CaptureWebSocketState {
     int? elapsedSec,
     String? currentRunId,
     bool? lastPoseDetected,
+    FeedbackItem? latestFeedbackItem,
     bool clearError = false,
     bool clearFinalResult = false,
   }) {
@@ -115,6 +120,7 @@ class CaptureWebSocketState {
       elapsedSec: elapsedSec ?? this.elapsedSec,
       currentRunId: currentRunId ?? this.currentRunId,
       lastPoseDetected: lastPoseDetected ?? this.lastPoseDetected,
+      latestFeedbackItem: latestFeedbackItem ?? this.latestFeedbackItem,
     );
   }
 
@@ -174,7 +180,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   // ─────────── 화면이 호출할 액션 ───────────
 
   /// WebSocket 연결 시작.
-  /// 첫 연결 시 runId를 생성하여 WS URL에 전달 (RunSession POST는 종료 시).
+  /// 첫 연결 시 RunSession을 서버에 생성하고 반환된 id를 WS URL에 전달.
   /// 재연결 시에는 기존 runId를 재사용.
   Future<void> connect() async {
     state = state.copyWith(clearError: true);
@@ -186,11 +192,18 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         return;
       }
       try {
-        final runId = await _runApi.generateRunId();
-        state = state.copyWith(currentRunId: runId);
+        final created = await _runApi.createRun(RunSession(
+          id: '0',
+          userId: userId,
+          status: 'RUNNING',
+          mode: 'normal',
+        ));
+        state = state.copyWith(currentRunId: created.id);
+        // ignore: avoid_print
+        print('[RunSession] created: id=${created.id}');
       } catch (e) {
         // ignore: avoid_print
-        print('[RunSession] id generation failed: $e');
+        print('[RunSession] creation failed: $e');
         state = state.copyWith(status: ConnectionStatus.error);
         return;
       }
@@ -203,7 +216,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   void resetSession() {
     _stopped = false;
     _loop.reset();
-    state = CaptureWebSocketState(status: _service.status);
+    _service.disconnect();
+    state = const CaptureWebSocketState();
   }
 
   /// 연결 종료 (사용자 의도)
@@ -224,8 +238,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     final camPos = ref.read(captureSetupViewModelProvider).cameraPosition;
     final analysisSide = camPos == CameraPosition.left ? 'left' : 'right';
     final direction = camPos == CameraPosition.left
-        ? 'left_to_right'
-        : 'right_to_left';
+        ? 'right_to_left'
+        : 'left_to_right';
     _service.sendSessionStart(
       analysisSide: analysisSide,
       direction: direction,
@@ -249,10 +263,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     });
   }
 
-  /// 측정 정지 — 캡처 루프 + 카메라 완전 해제 (stop 메시지는 별도)
+  /// 측정 정지 — 캡처 루프 멈춤 (stop 메시지는 별도)
   Future<void> stopCapture() async {
     await _loop.stop();
-    await ref.read(cameraServiceProvider).dispose();
 
     _tts.stop();
 
@@ -261,32 +274,37 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _stopwatch?.stop();
   }
 
+  /// 카메라 하드웨어 완전 해제. 캡처 흐름 완전히 빠져나갈 때 호출.
+  Future<void> releaseCamera() async {
+    await ref.read(cameraServiceProvider).dispose();
+  }
+
   /// 측정 종료 신호 송신 (백엔드가 analysis_result 응답 트리거)
   ///
   /// 호출 후에도 WebSocket 연결은 유지해야 analysis_result를 받을 수 있음.
   /// 결과 받은 후 disconnect()는 화면이 별도로 호출.
   bool sendStop() {
     _stopped = true;
+    _tts.speak('러닝을 종료합니다.');
     return _service.sendStop();
   }
 
-  /// 러닝 종료 후 RunSession을 서버에 저장.
-  /// [videoS3Key]가 있으면 하이라이트 영상 키로 포함, 없으면 null.
-  Future<void> saveRunSession({String? videoS3Key}) async {
+  /// 러닝 종료 후 RunSession 상태를 DONE으로 업데이트.
+  Future<void> updateRunSession() async {
     final runId = state.currentRunId;
     final userId = ref.read(authViewModelProvider).userId;
     if (runId == null || userId == null) return;
 
     try {
-      await _runApi.createRun(RunSession(
+      await _runApi.updateRun(RunSession(
         id: runId,
         userId: userId,
+        status: 'DONE',
         duration: state.elapsedSec,
-        videoS3Key: videoS3Key,
       ));
     } catch (e) {
       // ignore: avoid_print
-      print('[RunSession] save failed: $e');
+      print('[RunSession] update failed: $e');
     }
   }
 
@@ -297,7 +315,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     if (status == ConnectionStatus.disconnected ||
         status == ConnectionStatus.error) {
       _loop.stop();
-      ref.read(cameraServiceProvider).dispose();
+      if (_stopped) {
+        _service.disconnect();
+      }
     }
   }
 
@@ -328,14 +348,20 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         );
 
       case AnalysisProgressServerMessage(:final data):
+        final feedback = data.topPriorityItem;
         state = state.copyWith(
           latestProgress: data,
           progressCount: state.progressCount + 1,
           clearError: true,
+          latestFeedbackItem: feedback,
         );
         _maybeSpeakFeedback(data.ttsItem);
 
       case AnalysisResultServerMessage(:final data):
+        _stopped = true;
+        stopCapture();
+        _tts.speak('분석이 완료되었습니다. 러닝을 종료합니다.');
+        updateRunSession();
         state = state.copyWith(
           finalResult: data,
           clearError: true,

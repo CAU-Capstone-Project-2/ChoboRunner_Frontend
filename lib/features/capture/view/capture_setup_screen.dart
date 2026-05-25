@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../viewmodel/camera_viewmodel.dart';
 import '../viewmodel/capture_setup_viewmodel.dart';
+import '../viewmodel/capture_websocket_viewmodel.dart';
 
 class CaptureSetupScreen extends ConsumerStatefulWidget {
   const CaptureSetupScreen({super.key});
@@ -296,7 +297,10 @@ class _SetupContent extends ConsumerWidget {
                 borderRadius: BorderRadius.circular(24),
               ),
             ),
-            onPressed: () => context.go(AppRoutes.home),
+            onPressed: () {
+              ref.read(captureWebSocketViewModelProvider.notifier).releaseCamera();
+              context.go(AppRoutes.home);
+            },
             child: const Text('홈으로', style: AppTypography.secondaryButton),
           ),
         ),

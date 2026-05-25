@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
-import '../model/analysis_result_message.dart';
 import '../viewmodel/capture_websocket_viewmodel.dart';
 
 class CaptureFinishScreen extends ConsumerStatefulWidget {
@@ -46,63 +45,25 @@ class _CaptureFinishScreenState extends ConsumerState<CaptureFinishScreen> {
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // 러닝 시간
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: _RunningTimeRow(elapsedSec: widget.elapsedSec),
-            ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            children: [
+              const Spacer(flex: 2),
 
-            // analysis_result 디버그 영역
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: SingleChildScrollView(
-                    child: result != null
-                        ? SelectableText(
-                            _formatResult(result),
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 12,
-                              fontFamily: 'monospace',
-                            ),
-                          )
-                        : Column(
-                            children: [
-                              const SizedBox(height: 40),
-                              const CircularProgressIndicator(
-                                color: AppColors.primaryAction,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'analysis_result 대기 중...\n'
-                                'runId: ${wsState.currentRunId ?? "없음"}\n'
-                                'WS: ${wsState.status.name}',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
+              const Icon(
+                Icons.directions_run,
+                size: 200,
+                color: AppColors.textPrimary,
               ),
-            ),
 
-            // 홈으로 버튼
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-              child: SizedBox(
+              const Spacer(flex: 2),
+
+              _RunningTimeRow(elapsedSec: widget.elapsedSec),
+
+              const Spacer(flex: 1),
+
+              SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: FilledButton(
@@ -113,80 +74,23 @@ class _CaptureFinishScreenState extends ConsumerState<CaptureFinishScreen> {
                       borderRadius: BorderRadius.circular(26),
                     ),
                   ),
-                  onPressed: () => context.go(AppRoutes.home),
+                  onPressed: () {
+                    ref
+                        .read(captureWebSocketViewModelProvider.notifier)
+                        .releaseCamera();
+                    context.go(AppRoutes.home);
+                  },
                   child:
                       const Text('홈으로', style: AppTypography.primaryButton),
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
       ),
     );
-  }
-
-  String _formatResult(AnalysisResultMessage r) {
-    final buf = StringBuffer();
-    buf.writeln('=== analysis_result ===');
-    buf.writeln('status: ${r.status.name}');
-    buf.writeln('analysisSide: ${r.analysisSide ?? "null"}');
-    buf.writeln('message: ${r.message ?? "null"}');
-    buf.writeln('primaryReasonCode: ${r.primaryReasonCode ?? "null"}');
-    buf.writeln('reasonCodes: ${r.reasonCodes}');
-    buf.writeln();
-
-    if (r.metrics != null) {
-      final m = r.metrics!;
-      buf.writeln('--- metrics ---');
-      buf.writeln('footStrikePattern: ${m.footStrikePattern.name}');
-      buf.writeln('footStrikeAngleDeg: ${m.footStrikeAngleDeg}');
-      buf.writeln('initialKneeFlexionDeg: ${m.initialKneeFlexionDeg}');
-      buf.writeln('trunkLeanDeg: ${m.trunkLeanDeg}');
-      buf.writeln();
-    }
-
-    if (r.metricDetails != null && r.metricDetails!.isNotEmpty) {
-      buf.writeln('--- metricDetails ---');
-      for (final e in r.metricDetails!.entries) {
-        buf.writeln('${e.key}:');
-        buf.writeln('  median: ${e.value.median}');
-        buf.writeln('  iqr: ${e.value.iqr}');
-        buf.writeln('  nStrides: ${e.value.nStrides}');
-      }
-      buf.writeln();
-    }
-
-    final v = r.videoMeta;
-    buf.writeln('--- videoMeta ---');
-    buf.writeln('durationSec: ${v.durationSec}');
-    buf.writeln('fpsActual: ${v.fpsActual}');
-    buf.writeln('resolution: ${v.resolution.width}x${v.resolution.height}');
-    buf.writeln('totalFrames: ${v.totalFrames}');
-    buf.writeln();
-
-    if (r.qualitySummary != null) {
-      final q = r.qualitySummary!;
-      buf.writeln('--- qualitySummary ---');
-      buf.writeln('validFrameRatio: ${q.validFrameRatio}');
-      buf.writeln('icCandidateCount: ${q.icCandidateCount}');
-      buf.writeln('validStrideCount: ${q.validStrideCount}');
-      buf.writeln('landmarkVisibilityAvg: ${q.landmarkVisibilityAvg}');
-      buf.writeln('trackingStability: ${q.targetTrackingStability.name}');
-      buf.writeln();
-    }
-
-    if (r.feedbackMessages.isNotEmpty) {
-      buf.writeln('--- feedbackMessages (${r.feedbackMessages.length}) ---');
-      for (final f in r.feedbackMessages) {
-        buf.writeln('[${f.category.name}] metric=${f.metric}');
-        buf.writeln('  display: ${f.displayText}');
-        buf.writeln('  tts: ${f.ttsText}');
-        buf.writeln('  priority=${f.priority} ttsEnabled=${f.ttsEnabled} '
-            'confidencePrefix=${f.confidencePrefix}');
-      }
-    }
-
-    return buf.toString();
   }
 }
 

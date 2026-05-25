@@ -29,14 +29,26 @@ class RunSession {
     );
   }
 
+  /// POST /api/runs 요청 body. id는 서버 자동 생성.
   Map<String, dynamic> toCreateJson() {
     return {
-      'id': int.parse(id),
       'userId': int.parse(userId),
-      if (mode != null) 'mode': mode,
-      if (status != null) 'status': status,
-      if (videoS3Key != null) 'videoS3Key': videoS3Key,
+      'createdDate': createdDate ?? DateTime.now().toIso8601String(),
+      'mode': mode ?? 'normal',
+      'status': status ?? 'RUNNING',
       if (duration != null) 'duration': duration,
+    };
+  }
+
+  /// PUT /api/runs/{id} 요청 body.
+  Map<String, dynamic> toUpdateJson() {
+    return {
+      'userId': int.parse(userId),
+      'createdDate': createdDate ?? DateTime.now().toIso8601String(),
+      'mode': mode ?? 'normal',
+      'status': status ?? 'DONE',
+      if (duration != null) 'duration': duration,
+      if (videoS3Key != null) 'videoS3Key': videoS3Key,
     };
   }
 }

@@ -66,7 +66,7 @@ class _CaptureMeasuringScreenState
       if (becameReady) _ensureConnect();
     });
 
-    // WS 상태 전이: 자동 캡처 시작 + 자동 재연결
+    // WS 상태 전이: 자동 캡처 시작 + 자동 재연결 + 서버 종료 감지
     ref.listen<CaptureWebSocketState>(captureWebSocketViewModelProvider,
         (prev, next) {
       // 측정 시작 마크 (한 번만)
@@ -74,21 +74,30 @@ class _CaptureMeasuringScreenState
         setState(() => _measurementStarted = true);
       }
 
+      // 서버가 analysis_result를 보내면 자동으로 종료 화면 이동
+      if (prev?.finalResult == null && next.finalResult != null) {
+        _reconnectTimer?.cancel();
+        final elapsed = next.elapsedSec;
+        if (mounted) {
+          context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
+        }
+        return;
+      }
+
       final prevStatus = prev?.status;
       final nextStatus = next.status;
       if (prevStatus == nextStatus) return;
 
       if (nextStatus == ConnectionStatus.connected) {
-        // 연결 성공 — 대기 중인 재연결 취소.
-        // 최초 진입 시에만 캡처 자동 시작 (이미 측정 중이면 캡처 루프는 계속 동작).
         _reconnectTimer?.cancel();
         if (!next.isCapturing && !_measurementStarted) {
           ref.read(captureWebSocketViewModelProvider.notifier).startCapture();
         }
       } else if (nextStatus == ConnectionStatus.disconnected ||
           nextStatus == ConnectionStatus.error) {
-        // 의도하지 않은 끊김/실패 → 잠시 후 자동 재연결.
-        _scheduleReconnect();
+        if (!next.hasFinalResult) {
+          _scheduleReconnect();
+        }
       }
     });
 
@@ -370,7 +379,7 @@ class _FeedbackArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final item = wsState.latestProgress?.topPriorityItem;
+    final item = wsState.latestFeedbackItem;
 
     if (item == null) {
       return SizedBox(
@@ -489,7 +498,7 @@ class _PrimaryAction extends StatelessWidget {
           final elapsed = wsState.elapsedSec;
           await wsVm.stopCapture();
           wsVm.sendStop();
-          wsVm.saveRunSession();
+          wsVm.updateRunSession();
           if (context.mounted) {
             context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
           }
