@@ -193,20 +193,16 @@ class CaptureWebSocketService {
   // ─────────── 내부 핸들러 ───────────
 
   void _handleMessage(dynamic data) {
-    // ignore: avoid_print
-    print('[WS] message received: type=${data.runtimeType}, length=${data is String ? data.length : data is List ? data.length : "?"}');
-
     if (data is String) {
-      // ignore: avoid_print
-      print('[WS] text first 200: ${data.length > 200 ? data.substring(0, 200) : data}');
-
       final parsed = ServerMessage.tryParse(data);
       if (parsed == null) {
         // ignore: avoid_print
-        print('[WS] PARSE FAILED');
-      } else {
+        print('[WS] PARSE FAILED: $data');
+      } else if (parsed is! FrameInferenceServerMessage) {
         // ignore: avoid_print
-        print('[WS] parsed type: ${parsed.runtimeType}');
+        print('[WS] $data');
+      }
+      if (parsed != null) {
         _messageController.add(parsed);
       }
     } else if (data is List<int>) {

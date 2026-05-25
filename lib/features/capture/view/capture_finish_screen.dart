@@ -8,15 +8,33 @@ import '../../../core/theme/app_typography.dart';
 import '../model/analysis_result_message.dart';
 import '../viewmodel/capture_websocket_viewmodel.dart';
 
-class CaptureFinishScreen extends ConsumerWidget {
+class CaptureFinishScreen extends ConsumerStatefulWidget {
   const CaptureFinishScreen({super.key, this.elapsedSec = 0});
 
   final int elapsedSec;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CaptureFinishScreen> createState() =>
+      _CaptureFinishScreenState();
+}
+
+class _CaptureFinishScreenState extends ConsumerState<CaptureFinishScreen> {
+  bool _disconnected = false;
+
+  void _disconnectOnce() {
+    if (_disconnected) return;
+    _disconnected = true;
+    ref.read(captureWebSocketViewModelProvider.notifier).disconnect();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final wsState = ref.watch(captureWebSocketViewModelProvider);
     final result = wsState.finalResult;
+
+    if (result != null && !_disconnected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _disconnectOnce());
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -33,7 +51,7 @@ class CaptureFinishScreen extends ConsumerWidget {
             // 러닝 시간
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: _RunningTimeRow(elapsedSec: elapsedSec),
+              child: _RunningTimeRow(elapsedSec: widget.elapsedSec),
             ),
 
             // analysis_result 디버그 영역

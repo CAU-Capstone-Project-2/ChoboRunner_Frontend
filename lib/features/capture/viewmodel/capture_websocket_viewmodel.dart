@@ -135,6 +135,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   StreamSubscription<ServerMessage>? _messageSub;
   Stopwatch? _stopwatch;
   Timer? _elapsedTimer;
+  bool _stopped = false;
 
   /// 같은 metric 재발화 최소 간격 (cooldown).
   static const Duration _ttsRepeatCooldown = Duration(seconds: 4);
@@ -200,6 +201,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
 
   /// 새 측정 세션을 위해 상태 초기화. 화면 진입 시 호출.
   void resetSession() {
+    _stopped = false;
     _loop.reset();
     state = CaptureWebSocketState(status: _service.status);
   }
@@ -247,14 +249,13 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     });
   }
 
-  /// 측정 정지 — 캡처 루프 멈춤 (stop 메시지는 별도)
+  /// 측정 정지 — 캡처 루프 + 카메라 완전 해제 (stop 메시지는 별도)
   Future<void> stopCapture() async {
     await _loop.stop();
+    await ref.read(cameraServiceProvider).dispose();
 
-    // 진행 중이던 TTS가 있으면 정지 (분석 결과 화면 이동 시 잔여 음성 차단)
     _tts.stop();
 
-    // 러닝 시간 측정 정지 (현재 elapsedSec 값은 유지)
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
     _stopwatch?.stop();
@@ -265,6 +266,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   /// 호출 후에도 WebSocket 연결은 유지해야 analysis_result를 받을 수 있음.
   /// 결과 받은 후 disconnect()는 화면이 별도로 호출.
   bool sendStop() {
+    _stopped = true;
     return _service.sendStop();
   }
 
@@ -292,6 +294,11 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
 
   void _onStatusChanged(ConnectionStatus status) {
     state = state.copyWith(status: status);
+    if (status == ConnectionStatus.disconnected ||
+        status == ConnectionStatus.error) {
+      _loop.stop();
+      ref.read(cameraServiceProvider).dispose();
+    }
   }
 
   void _onLoopStatsChanged() {
@@ -306,6 +313,13 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   }
 
   void _onMessageReceived(ServerMessage msg) {
+    if (_stopped) {
+      if (msg is AnalysisResultServerMessage) {
+        state = state.copyWith(finalResult: msg.data, clearError: true);
+      }
+      return;
+    }
+
     switch (msg) {
       case FrameInferenceServerMessage(:final data):
         state = state.copyWith(
@@ -322,7 +336,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         _maybeSpeakFeedback(data.ttsItem);
 
       case AnalysisResultServerMessage(:final data):
-        // 최종 결과 도착. 측정 종료 시점.
         state = state.copyWith(
           finalResult: data,
           clearError: true,
@@ -332,7 +345,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         state = state.copyWith(latestError: msg);
 
       case UnknownServerMessage():
-        // 명세에 없는 type. 무시.
         break;
     }
   }

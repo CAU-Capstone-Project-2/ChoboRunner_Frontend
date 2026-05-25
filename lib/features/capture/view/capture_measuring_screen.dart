@@ -52,7 +52,6 @@ class _CaptureMeasuringScreenState
   @override
   void dispose() {
     _reconnectTimer?.cancel();
-    _wsVm?.disconnect();
     super.dispose();
   }
 
