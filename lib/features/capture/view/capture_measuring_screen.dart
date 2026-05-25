@@ -35,10 +35,14 @@ class _CaptureMeasuringScreenState
 
   static const Duration _reconnectDelay = Duration(seconds: 2);
 
+  CaptureWebSocketViewModel? _wsVm;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
+      _wsVm!.resetSession();
       ref
           .read(cameraViewModelProvider.notifier)
           .requestPermissionAndInitialize();
@@ -48,7 +52,7 @@ class _CaptureMeasuringScreenState
   @override
   void dispose() {
     _reconnectTimer?.cancel();
-    ref.read(captureWebSocketViewModelProvider.notifier).disconnect();
+    _wsVm?.disconnect();
     super.dispose();
   }
 
@@ -484,13 +488,14 @@ class _PrimaryAction extends StatelessWidget {
     if (measurementStarted) {
       return _wideButton(
         label: '러닝 종료',
-        onPressed: () {
+        onPressed: () async {
           final elapsed = wsState.elapsedSec;
-          wsVm.stopCapture();
+          await wsVm.stopCapture();
           wsVm.sendStop();
-          // 측정 종료 화면으로 이동 (elapsedSec 전달).
-          // 백엔드 analysis_result 응답은 추후 분석 리포트 화면 단계에서 처리.
-          context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
+          wsVm.saveRunSession();
+          if (context.mounted) {
+            context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
+          }
         },
       );
     }
