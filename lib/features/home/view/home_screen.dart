@@ -236,10 +236,7 @@ class _RecordEntry extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   _formatDuration(session.duration),
-                  style: AppTypography.cardBody.copyWith(
-                    color: AppColors.analysisText.withValues(alpha: 0.6),
-                    fontSize: 13,
-                  ),
+                  style: AppTypography.cardBody,
                 ),
               ],
             ),
