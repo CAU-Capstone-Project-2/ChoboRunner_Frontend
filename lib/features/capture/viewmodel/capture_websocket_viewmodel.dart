@@ -136,11 +136,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   Stopwatch? _stopwatch;
   Timer? _elapsedTimer;
 
-  /// 직전에 TTS로 발화한 텍스트 (중복 발화 방지)
-  String? _lastSpokenText;
-
   /// 같은 metric 재발화 최소 간격 (cooldown).
-  /// 같은 자세 경고가 짧은 간격으로 반복 도착해도 사용자 귀를 덜 피곤하게 한다.
   static const Duration _ttsRepeatCooldown = Duration(seconds: 4);
 
   /// metric별 마지막 발화 시각
@@ -236,8 +232,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _loop.reset();
     _loop.start();
 
-    // TTS 발화 이력 리셋 — 새 측정 세션이므로 직전 측정의 발화 가드와 무관하게 다시 안내.
-    _lastSpokenText = null;
     _lastSpokenAt.clear();
 
     // 러닝 시간 측정 시작 (클라이언트 자체)
@@ -343,19 +337,13 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     }
   }
 
-  /// 자세 경고 항목을 TTS로 발화. 중복 발화/짧은 간격 반복 방지.
-  ///
-  /// 가드:
-  /// - ttsText 비어있으면 skip
-  /// - 직전 발화 텍스트와 동일하면 skip
-  /// - 같은 metric을 [_ttsRepeatCooldown] 이내에 다시 받으면 skip
+  /// 자세 경고 항목을 TTS로 발화.
+  /// 서버가 이미 빈도 제한을 적용하므로 클라는 metric 쿨다운만 유지.
   void _maybeSpeakFeedback(FeedbackItem? item) {
     if (item == null) return;
 
     final text = item.ttsText?.trim();
     if (text == null || text.isEmpty) return;
-
-    if (text == _lastSpokenText) return;
 
     final metric = item.metric;
     if (metric != null) {
@@ -366,8 +354,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
       }
       _lastSpokenAt[metric] = DateTime.now();
     }
-
-    _lastSpokenText = text;
     _tts.speak(text);
   }
 }
