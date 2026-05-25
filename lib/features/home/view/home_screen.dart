@@ -1,46 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../report/model/report_session.dart';
+import '../../report/viewmodel/report_list_viewmodel.dart';
 
-/// Mock 러닝 이력 데이터. 실제 데이터 연동은 추후 ViewModel 단계에서.
-class _RunningRecord {
-  final String date;
-  final String duration;
-  final int score;
-  const _RunningRecord({
-    required this.date,
-    required this.duration,
-    required this.score,
-  });
-}
-
-const List<_RunningRecord> _mockRecords = [
-  _RunningRecord(date: '2026-03-07', duration: '40:00', score: 70),
-  _RunningRecord(date: '2026-03-05', duration: '40:00', score: 79),
-  _RunningRecord(date: '2026-03-01', duration: '40:00', score: 50),
-];
-
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncSessions = ref.watch(reportListProvider);
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: const [
-              _Header(),
-              SizedBox(height: 16),
-              _HeroSection(),
-              SizedBox(height: 24),
-              _AnalysisSection(records: _mockRecords),
-              SizedBox(height: 24),
+            children: [
+              const _Header(),
+              const SizedBox(height: 16),
+              const _HeroSection(),
+              const SizedBox(height: 24),
+              _AnalysisSection(asyncSessions: asyncSessions),
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -48,8 +35,6 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
-
-// ─────────── 헤더 (로고 + 브랜드명) ───────────
 
 class _Header extends StatelessWidget {
   const _Header();
@@ -82,8 +67,6 @@ class _Header extends StatelessWidget {
   }
 }
 
-// ─────────── 히어로 영역 (보라 배너 + CTA) ───────────
-
 class _HeroSection extends StatelessWidget {
   const _HeroSection();
 
@@ -92,10 +75,8 @@ class _HeroSection extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // 보라 배너
         Container(
           height: 295,
-          margin: const EdgeInsets.symmetric(horizontal: 0),
           color: AppColors.heroBanner,
           alignment: Alignment.topCenter,
           child: const Padding(
@@ -125,7 +106,6 @@ class _HeroSection extends StatelessWidget {
             ),
           ),
         ),
-        // CTA 버튼 (배너 하단에 걸침)
         Positioned(
           left: 50,
           right: 50,
@@ -150,11 +130,9 @@ class _HeroSection extends StatelessWidget {
   }
 }
 
-// ─────────── 러닝 분석 섹션 (흰 카드 + 이력 리스트) ───────────
-
 class _AnalysisSection extends StatelessWidget {
-  const _AnalysisSection({required this.records});
-  final List<_RunningRecord> records;
+  const _AnalysisSection({required this.asyncSessions});
+  final AsyncValue<List<ReportSession>> asyncSessions;
 
   @override
   Widget build(BuildContext context) {
@@ -169,7 +147,6 @@ class _AnalysisSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 헤더: '러닝 분석' + 진입 화살표 (탭 시 리포트 선택 화면으로)
             InkWell(
               onTap: () => context.push(AppRoutes.report),
               borderRadius: BorderRadius.circular(8),
@@ -189,10 +166,44 @@ class _AnalysisSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            ...records.map((r) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _RecordEntry(record: r),
-                )),
+            asyncSessions.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.textPrimary,
+                    strokeWidth: 2,
+                  ),
+                ),
+              ),
+              error: (_, __) => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('기록을 불러올 수 없습니다.',
+                      style: AppTypography.bodyMuted),
+                ),
+              ),
+              data: (sessions) {
+                if (sessions.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('아직 러닝 기록이 없습니다.',
+                          style: AppTypography.bodyMuted),
+                    ),
+                  );
+                }
+                final display = sessions.take(5).toList();
+                return Column(
+                  children: display
+                      .map((s) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _RecordEntry(session: s),
+                          ))
+                      .toList(),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -201,8 +212,8 @@ class _AnalysisSection extends StatelessWidget {
 }
 
 class _RecordEntry extends StatelessWidget {
-  const _RecordEntry({required this.record});
-  final _RunningRecord record;
+  const _RecordEntry({required this.session});
+  final ReportSession session;
 
   @override
   Widget build(BuildContext context) {
@@ -216,56 +227,41 @@ class _RecordEntry extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          // 날짜 + 시간 (좌측 2줄)
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(record.date, style: AppTypography.cardBody),
+                Text(_formatDate(session.date), style: AppTypography.cardBody),
                 const SizedBox(height: 4),
-                Text(record.duration, style: AppTypography.cardBody),
+                Text(
+                  _formatDuration(session.duration),
+                  style: AppTypography.cardBody.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
               ],
             ),
           ),
-          // 점수 (우측, 점수에 따른 색상의 원형 테두리)
-          _ScoreBadge(score: record.score, color: _scoreColor(record.score)),
         ],
       ),
     );
   }
 
-  Color _scoreColor(int score) {
-    if (score >= 75) return AppColors.scoreHigh;
-    if (score >= 60) return AppColors.scoreMid;
-    return AppColors.scoreLow;
+  String _formatDate(DateTime d) {
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    final h = d.hour.toString().padLeft(2, '0');
+    final min = d.minute.toString().padLeft(2, '0');
+    return '$y-$m-$day $h:$min';
   }
-}
 
-class _ScoreBadge extends StatelessWidget {
-  const _ScoreBadge({required this.score, required this.color});
-  final int score;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: 2),
-      ),
-      child: Text(
-        '$score',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: color,
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
+  String _formatDuration(int? sec) {
+    if (sec == null) return '-';
+    final mm = (sec ~/ 60).toString();
+    final ss = (sec % 60).toString().padLeft(2, '0');
+    return '$mm분 $ss초';
   }
 }
