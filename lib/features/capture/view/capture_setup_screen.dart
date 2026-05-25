@@ -22,6 +22,7 @@ class _CaptureSetupScreenState extends ConsumerState<CaptureSetupScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(captureSetupViewModelProvider.notifier).reset();
       ref
           .read(cameraViewModelProvider.notifier)
           .requestPermissionAndInitialize();
@@ -265,11 +266,24 @@ class _SetupContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final setupState = ref.watch(captureSetupViewModelProvider);
     final setupVm = ref.read(captureSetupViewModelProvider.notifier);
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        const Spacer(),
+        // 카메라 위치 선택
+        const Text(
+          '카메라 위치 (분석 대상자 기준)',
+          style: AppTypography.label,
+        ),
+        const SizedBox(height: 10),
+        _CameraPositionSelector(
+          selected: setupState.cameraPosition,
+          onChanged: setupVm.setCameraPosition,
+        ),
+        const Spacer(),
         // 홈으로 (secondary)
         SizedBox(
           width: double.infinity,
@@ -344,6 +358,98 @@ class _CountdownContent extends StatelessWidget {
             fontSize: 56,
             fontWeight: FontWeight.w700,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────── 카메라 위치 선택 ───────────
+
+class _CameraPositionSelector extends StatelessWidget {
+  const _CameraPositionSelector({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final CameraPosition selected;
+  final ValueChanged<CameraPosition> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _PositionButton(
+            label: '좌측',
+            icon: Icons.chevron_left,
+            isSelected: selected == CameraPosition.left,
+            onTap: () => onChanged(CameraPosition.left),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _PositionButton(
+            label: '우측',
+            icon: Icons.chevron_right,
+            isSelected: selected == CameraPosition.right,
+            onTap: () => onChanged(CameraPosition.right),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PositionButton extends StatelessWidget {
+  const _PositionButton({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primaryAction : AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? AppColors.primaryAction : AppColors.divider,
+            width: 1.5,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isSelected
+                  ? AppColors.primaryActionText
+                  : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? AppColors.primaryActionText
+                    : AppColors.textSecondary,
+                fontSize: 15,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );

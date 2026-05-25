@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/tts/tts_provider.dart';
 import '../../../core/tts/tts_service.dart';
 import '../../auth/viewmodel/auth_viewmodel.dart';
+import '../viewmodel/capture_setup_viewmodel.dart';
 import '../model/analysis_progress_message.dart';
 import '../model/analysis_result_message.dart';
 import '../model/camera_service.dart';
@@ -61,6 +62,9 @@ class CaptureWebSocketState {
   /// 현재 측정 세션의 RunSession ID.
   final String? currentRunId;
 
+  /// 최근 frame_inference의 pose_detected 값.
+  final bool lastPoseDetected;
+
   const CaptureWebSocketState({
     this.status = ConnectionStatus.disconnected,
     this.latestProgress,
@@ -75,6 +79,7 @@ class CaptureWebSocketState {
     this.sendFps = 0.0,
     this.elapsedSec = 0,
     this.currentRunId,
+    this.lastPoseDetected = false,
   });
 
   CaptureWebSocketState copyWith({
@@ -91,6 +96,7 @@ class CaptureWebSocketState {
     double? sendFps,
     int? elapsedSec,
     String? currentRunId,
+    bool? lastPoseDetected,
     bool clearError = false,
     bool clearFinalResult = false,
   }) {
@@ -108,6 +114,7 @@ class CaptureWebSocketState {
       sendFps: sendFps ?? this.sendFps,
       elapsedSec: elapsedSec ?? this.elapsedSec,
       currentRunId: currentRunId ?? this.currentRunId,
+      lastPoseDetected: lastPoseDetected ?? this.lastPoseDetected,
     );
   }
 
@@ -214,8 +221,18 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     return _service.sendFrame(frame, tsMs: tsMs);
   }
 
-  /// 측정 시작 — 카메라 캡처 루프 가동 (내부에서 image stream도 시작)
+  /// 측정 시작 — session_start 전송 후 캡처 루프 가동
   void startCapture() {
+    final camPos = ref.read(captureSetupViewModelProvider).cameraPosition;
+    final analysisSide = camPos == CameraPosition.left ? 'left' : 'right';
+    final direction = camPos == CameraPosition.left
+        ? 'left_to_right'
+        : 'right_to_left';
+    _service.sendSessionStart(
+      analysisSide: analysisSide,
+      direction: direction,
+    );
+
     _loop.reset();
     _loop.start();
 
@@ -296,11 +313,10 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
 
   void _onMessageReceived(ServerMessage msg) {
     switch (msg) {
-      case FrameInferenceServerMessage():
-        // 디버그용. 사용자에게 표시하지 않음 (명세 권고).
-        // 카운트만 증가시켜 모니터링 용도로 사용 가능.
+      case FrameInferenceServerMessage(:final data):
         state = state.copyWith(
           frameInferenceCount: state.frameInferenceCount + 1,
+          lastPoseDetected: data.result.poseDetected,
         );
 
       case AnalysisProgressServerMessage(:final data):

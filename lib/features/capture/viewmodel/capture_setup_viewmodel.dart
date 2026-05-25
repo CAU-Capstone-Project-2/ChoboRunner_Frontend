@@ -14,24 +14,33 @@ enum SetupMode {
   countdown,
 }
 
+/// 분석 대상자 기준 카메라 위치.
+/// 카메라가 왼쪽이면 러너는 화면에서 우→좌 방향으로 달리고,
+/// 오른쪽이면 좌→우 방향으로 달린다.
+enum CameraPosition { left, right }
+
 /// 촬영 설정 화면 상태
 @immutable
 class CaptureSetupState {
   final SetupMode mode;
   final int countdownValue; // 3, 2, 1, 0
+  final CameraPosition cameraPosition;
 
   const CaptureSetupState({
     this.mode = SetupMode.setup,
     this.countdownValue = 0,
+    this.cameraPosition = CameraPosition.left,
   });
 
   CaptureSetupState copyWith({
     SetupMode? mode,
     int? countdownValue,
+    CameraPosition? cameraPosition,
   }) {
     return CaptureSetupState(
       mode: mode ?? this.mode,
       countdownValue: countdownValue ?? this.countdownValue,
+      cameraPosition: cameraPosition ?? this.cameraPosition,
     );
   }
 }
@@ -51,6 +60,17 @@ class CaptureSetupViewModel extends Notifier<CaptureSetupState> {
       _countdownTimer?.cancel();
     });
     return const CaptureSetupState();
+  }
+
+  void reset() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    _onCountdownComplete = null;
+    state = CaptureSetupState(cameraPosition: state.cameraPosition);
+  }
+
+  void setCameraPosition(CameraPosition position) {
+    state = state.copyWith(cameraPosition: position);
   }
 
   /// 카운트다운 시작.

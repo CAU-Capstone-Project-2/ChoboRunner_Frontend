@@ -141,6 +141,18 @@ class CaptureWebSocketService {
     }
   }
 
+  /// 세션 시작 메타데이터 전송. 첫 binary frame 전에 호출해야 함.
+  bool sendSessionStart({
+    required String analysisSide,
+    required String direction,
+  }) {
+    return sendText(
+      '{"type":"session_start",'
+      '"analysis_side":"$analysisSide",'
+      '"direction":"$direction"}',
+    );
+  }
+
   /// 측정 세션 종료 신호 송신
   ///
   /// 백엔드 명세에 따라 text frame {"type":"stop"} 전송.
@@ -158,10 +170,14 @@ class CaptureWebSocketService {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
 
-    await _subscription?.cancel();
+    try {
+      await _subscription?.cancel();
+    } catch (_) {}
     _subscription = null;
 
-    await _channel?.sink.close(ws_status.normalClosure);
+    try {
+      await _channel?.sink.close(ws_status.normalClosure);
+    } catch (_) {}
     _channel = null;
 
     _setStatus(ConnectionStatus.disconnected);
@@ -203,6 +219,7 @@ class CaptureWebSocketService {
   void _handleError(Object error) {
     // ignore: avoid_print
     print('[WS] stream error: $error');
+    if (_intentionallyClosed) return;
     _setStatus(ConnectionStatus.error);
     _scheduleReconnectIfNeeded();
   }
