@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,14 @@ import '../model/run_session_api_service.dart';
 import '../model/server_message.dart';
 import 'camera_provider.dart';
 import 'capture_websocket_provider.dart';
+
+/// 오버레이 영상 업로드 상태
+enum OverlayUploadStatus {
+  idle,
+  uploading,
+  done,
+  error,
+}
 
 /// 측정 화면이 watch할 WebSocket 상태
 class CaptureWebSocketState {
@@ -68,6 +77,9 @@ class CaptureWebSocketState {
   /// 가장 최근 수신된 피드백 항목. 다음 피드백이 올 때까지 유지.
   final FeedbackItem? latestFeedbackItem;
 
+  /// 오버레이 영상 업로드 상태
+  final OverlayUploadStatus overlayUploadStatus;
+
   const CaptureWebSocketState({
     this.status = ConnectionStatus.disconnected,
     this.latestProgress,
@@ -84,6 +96,7 @@ class CaptureWebSocketState {
     this.currentRunId,
     this.lastPoseDetected = false,
     this.latestFeedbackItem,
+    this.overlayUploadStatus = OverlayUploadStatus.idle,
   });
 
   CaptureWebSocketState copyWith({
@@ -102,6 +115,7 @@ class CaptureWebSocketState {
     String? currentRunId,
     bool? lastPoseDetected,
     FeedbackItem? latestFeedbackItem,
+    OverlayUploadStatus? overlayUploadStatus,
     bool clearError = false,
     bool clearFinalResult = false,
   }) {
@@ -121,6 +135,7 @@ class CaptureWebSocketState {
       currentRunId: currentRunId ?? this.currentRunId,
       lastPoseDetected: lastPoseDetected ?? this.lastPoseDetected,
       latestFeedbackItem: latestFeedbackItem ?? this.latestFeedbackItem,
+      overlayUploadStatus: overlayUploadStatus ?? this.overlayUploadStatus,
     );
   }
 
@@ -263,7 +278,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     });
   }
 
-  /// 측정 정지 — 캡처 루프 멈춤 (stop 메시지는 별도)
+  /// 측정 정지 — 캡처 루프 멈춤 + 녹화 종료 (stop 메시지는 별도).
+  /// 녹화 파일이 있으면 오버레이 업로드를 fire-and-forget으로 시작.
   Future<void> stopCapture() async {
     await _loop.stop();
 
@@ -272,6 +288,46 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
     _stopwatch?.stop();
+
+    // 분석 실패가 아닌 경우에만 오버레이 업로드
+    final failed = state.finalResult?.status == AnalysisStatus.failed;
+    if (_loop.recordedFilePath != null && !failed) {
+      _uploadOverlayVideo();
+    }
+  }
+
+  /// 녹화된 MP4를 서버에 업로드하여 AI 오버레이 합성 요청.
+  /// fire-and-forget으로 호출. 상태만 업데이트.
+  Future<void> _uploadOverlayVideo() async {
+    final filePath = _loop.recordedFilePath;
+    final runId = state.currentRunId;
+    if (filePath == null || runId == null) return;
+
+    state = state.copyWith(
+      overlayUploadStatus: OverlayUploadStatus.uploading,
+    );
+
+    try {
+      await _runApi.uploadOverlay(
+        runSessionId: runId,
+        videoFile: File(filePath),
+      );
+      state = state.copyWith(
+        overlayUploadStatus: OverlayUploadStatus.done,
+      );
+      // ignore: avoid_print
+      print('[Overlay] upload success for run=$runId');
+    } catch (e) {
+      state = state.copyWith(
+        overlayUploadStatus: OverlayUploadStatus.error,
+      );
+      // ignore: avoid_print
+      print('[Overlay] upload failed: $e');
+    } finally {
+      try {
+        await File(filePath).delete();
+      } catch (_) {}
+    }
   }
 
   /// 카메라 하드웨어 완전 해제. 캡처 흐름 완전히 빠져나갈 때 호출.
@@ -308,6 +364,35 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     }
   }
 
+  /// 분석 실패 시 관련 데이터 정리 후 RunSession 삭제.
+  Future<void> _deleteRunSession() async {
+    final runId = state.currentRunId;
+    if (runId == null) return;
+
+    try {
+      await _runApi.deleteHighlightsByRun(runId);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[RunSession] highlight cleanup failed: $e');
+    }
+
+    try {
+      await _runApi.deleteFeedbacksByRun(runId);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[RunSession] feedback cleanup failed: $e');
+    }
+
+    try {
+      await _runApi.deleteRun(runId);
+      // ignore: avoid_print
+      print('[RunSession] deleted (analysis failed): id=$runId');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[RunSession] delete failed: $e');
+    }
+  }
+
   // ─────────── 내부 상태 업데이트 ───────────
 
   void _onStatusChanged(ConnectionStatus status) {
@@ -336,6 +421,11 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     if (_stopped) {
       if (msg is AnalysisResultServerMessage) {
         state = state.copyWith(finalResult: msg.data, clearError: true);
+        if (msg.data.status == AnalysisStatus.failed) {
+          _deleteRunSession();
+        } else {
+          updateRunSession();
+        }
       }
       return;
     }
@@ -359,13 +449,18 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
 
       case AnalysisResultServerMessage(:final data):
         _stopped = true;
-        stopCapture();
-        _tts.speak('분석이 완료되었습니다. 러닝을 종료합니다.');
-        updateRunSession();
         state = state.copyWith(
           finalResult: data,
           clearError: true,
         );
+        if (data.status == AnalysisStatus.failed) {
+          _tts.speak('분석에 실패했습니다. 다시 촬영해 주세요.');
+          _deleteRunSession();
+        } else {
+          _tts.speak('분석이 완료되었습니다. 러닝을 종료합니다.');
+          updateRunSession();
+        }
+        stopCapture();
 
       case ErrorServerMessage():
         state = state.copyWith(latestError: msg);

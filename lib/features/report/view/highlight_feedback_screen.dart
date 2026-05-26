@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -53,39 +56,7 @@ class HighlightFeedbackScreen extends ConsumerWidget {
                 ),
               );
             }
-            return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const _VideoPlaceholder(),
-                  const SizedBox(height: 28),
-                  if (feedback.segments.isNotEmpty) ...[
-                    _TimelineLabel(segments: feedback.segments),
-                    const SizedBox(height: 12),
-                    _TimelineBar(
-                      totalDuration: feedback.totalDuration,
-                      segments: feedback.segments,
-                    ),
-                    const SizedBox(height: 24),
-                    ...feedback.segments.map(
-                      (seg) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _SegmentCard(segment: seg),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  Center(
-                    child: Text(
-                      feedback.message,
-                      textAlign: TextAlign.center,
-                      style: AppTypography.body.copyWith(fontSize: 15),
-                    ),
-                  ),
-                ],
-              ),
-            );
+            return _HighlightBody(feedback: feedback);
           },
         ),
       ),
@@ -93,67 +64,198 @@ class HighlightFeedbackScreen extends ConsumerWidget {
   }
 }
 
-class _VideoPlaceholder extends StatelessWidget {
-  const _VideoPlaceholder();
+// ─────────── 메인 바디 (영상 + 타임라인 + 피드백) ───────────
+
+class _HighlightBody extends StatefulWidget {
+  const _HighlightBody({required this.feedback});
+  final HighlightFeedback feedback;
+
+  @override
+  State<_HighlightBody> createState() => _HighlightBodyState();
+}
+
+class _HighlightBodyState extends State<_HighlightBody> {
+  VideoPlayerController? _videoController;
+  int? _selectedIndex;
+  Timer? _loopTimer;
+
+  HighlightFeedback get feedback => widget.feedback;
+
+  @override
+  void initState() {
+    super.initState();
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    final url = feedback.videoUrl;
+    if (url == null) return;
+
+    final controller = VideoPlayerController.networkUrl(Uri.parse(url));
+    _videoController = controller;
+
+    try {
+      await controller.initialize();
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _loopTimer?.cancel();
+    _videoController?.dispose();
+    super.dispose();
+  }
+
+  void _onSegmentTap(int index) {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final seg = feedback.segments[index];
+
+    setState(() => _selectedIndex = index);
+
+    controller.seekTo(seg.start);
+    controller.play();
+
+    _loopTimer?.cancel();
+    _loopTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!mounted || _selectedIndex != index) {
+        _loopTimer?.cancel();
+        return;
+      }
+      final pos = controller.value.position;
+      if (pos >= seg.end) {
+        controller.seekTo(seg.start);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 1,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.cameraPlaceholder,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          '하이라이트된 영상 나오는 부분',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+    final selectedSeg =
+        _selectedIndex != null ? feedback.segments[_selectedIndex!] : null;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 영상 (7할)
+          Expanded(
+            flex: 7,
+            child: _VideoArea(
+              controller: _videoController,
+              hasVideoUrl: feedback.videoUrl != null,
+            ),
           ),
-        ),
+
+          const SizedBox(height: 12),
+
+          // 타임라인 + 피드백 (3할)
+          if (feedback.segments.isNotEmpty)
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _TimelineBar(
+                    totalDuration: feedback.totalDuration,
+                    segments: feedback.segments,
+                    selectedIndex: _selectedIndex,
+                    onSegmentTap: _onSegmentTap,
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: selectedSeg != null
+                        ? _SegmentCard(segment: selectedSeg)
+                        : Center(
+                            child: Text(
+                              '타임라인의 하이라이트 구간을 탭하세요',
+                              style: AppTypography.bodyMuted
+                                  .copyWith(fontSize: 14),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+
+          if (feedback.segments.isEmpty)
+            Expanded(
+              flex: 3,
+              child: Center(
+                child: Text(
+                  feedback.message,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.body.copyWith(fontSize: 15),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 }
 
-class _TimelineLabel extends StatelessWidget {
-  const _TimelineLabel({required this.segments});
-  final List<HighlightSegment> segments;
+// ─────────── 영상 영역 ───────────
+
+class _VideoArea extends StatelessWidget {
+  const _VideoArea({required this.controller, required this.hasVideoUrl});
+  final VideoPlayerController? controller;
+  final bool hasVideoUrl;
 
   @override
   Widget build(BuildContext context) {
-    final example = segments.isNotEmpty
-        ? '${_format(segments.first.start)}~${_format(segments.first.end)}'
-        : '-';
-    return Center(
-      child: Text(
-        '영상의 시간대 ( Ex. $example )',
-        style: AppTypography.bodyMuted.copyWith(fontSize: 14),
+    final ctrl = controller;
+
+    if (ctrl == null || !ctrl.value.isInitialized) {
+      return AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          alignment: Alignment.center,
+          child: hasVideoUrl
+              ? const CircularProgressIndicator(
+                  color: AppColors.textMuted, strokeWidth: 2)
+              : const Text(
+                  '하이라이트 영상이 존재하지 않습니다',
+                  style: AppTypography.bodyMuted,
+                ),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: AspectRatio(
+        aspectRatio: ctrl.value.aspectRatio,
+        child: VideoPlayer(ctrl),
       ),
     );
   }
-
-  static String _format(Duration d) {
-    final m = d.inMinutes;
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
 }
+
+// ─────────── 인터랙티브 타임라인 바 ───────────
 
 class _TimelineBar extends StatelessWidget {
   const _TimelineBar({
     required this.totalDuration,
     required this.segments,
+    required this.selectedIndex,
+    required this.onSegmentTap,
   });
 
   final Duration totalDuration;
   final List<HighlightSegment> segments;
+  final int? selectedIndex;
+  final ValueChanged<int> onSegmentTap;
 
-  static const double _barHeight = 12;
-  static const double _minMarkerWidth = 8;
+  static const double _barHeight = 36;
+  static const double _minMarkerWidth = 12;
 
   @override
   Widget build(BuildContext context) {
@@ -161,18 +263,23 @@ class _TimelineBar extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final totalMs = totalDuration.inMilliseconds;
+
         return SizedBox(
           height: _barHeight,
           child: Stack(
             children: [
+              // 배경 바
               Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(_barHeight / 2),
+                  border: Border.all(color: AppColors.divider, width: 1),
                 ),
               ),
+              // 세그먼트 마커
               if (totalMs > 0)
-                ...segments.map((seg) {
+                ...List.generate(segments.length, (i) {
+                  final seg = segments[i];
                   final startRatio =
                       (seg.start.inMilliseconds / totalMs).clamp(0.0, 1.0);
                   final endRatio =
@@ -180,15 +287,27 @@ class _TimelineBar extends StatelessWidget {
                   final left = startRatio * width;
                   final markerWidth = ((endRatio - startRatio) * width)
                       .clamp(_minMarkerWidth, width);
+                  final isSelected = selectedIndex == i;
+
                   return Positioned(
                     left: left,
                     top: 0,
                     bottom: 0,
                     width: markerWidth,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryAction,
-                        borderRadius: BorderRadius.circular(_barHeight / 2),
+                    child: GestureDetector(
+                      onTap: () => onSegmentTap(i),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.primaryAction
+                              : AppColors.primaryAction.withValues(alpha: 0.5),
+                          borderRadius:
+                              BorderRadius.circular(_barHeight / 2),
+                          border: isSelected
+                              ? Border.all(
+                                  color: Colors.white, width: 2)
+                              : null,
+                        ),
                       ),
                     ),
                   );
@@ -201,6 +320,8 @@ class _TimelineBar extends StatelessWidget {
   }
 }
 
+// ─────────── 세그먼트 카드 ───────────
+
 class _SegmentCard extends StatelessWidget {
   const _SegmentCard({required this.segment});
   final HighlightSegment segment;
@@ -208,17 +329,17 @@ class _SegmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.divider, width: 1),
+        border: Border.all(color: AppColors.primaryAction, width: 1.5),
       ),
       child: Row(
         children: [
           Container(
             width: 4,
-            height: 36,
+            height: 40,
             decoration: BoxDecoration(
               color: AppColors.primaryAction,
               borderRadius: BorderRadius.circular(2),
@@ -235,12 +356,10 @@ class _SegmentCard extends StatelessWidget {
                   style: AppTypography.bodyMuted.copyWith(fontSize: 12),
                 ),
                 if (segment.message != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
                     segment.message!,
-                    style: AppTypography.body.copyWith(fontSize: 13),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body.copyWith(fontSize: 14),
                   ),
                 ],
               ],

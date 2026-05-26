@@ -8,11 +8,23 @@ import '../../../core/theme/app_typography.dart';
 import '../model/report_session.dart';
 import '../viewmodel/report_list_viewmodel.dart';
 
-class ReportListScreen extends ConsumerWidget {
+class ReportListScreen extends ConsumerStatefulWidget {
   const ReportListScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReportListScreen> createState() => _ReportListScreenState();
+}
+
+class _ReportListScreenState extends ConsumerState<ReportListScreen> {
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(reportListProvider, (_, __) {});
+    Future.microtask(() => ref.invalidate(reportListProvider));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final asyncSessions = ref.watch(reportListProvider);
 
     return Scaffold(

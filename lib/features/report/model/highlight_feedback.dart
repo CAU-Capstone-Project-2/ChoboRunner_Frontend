@@ -6,18 +6,21 @@ class HighlightFeedback {
   final Duration totalDuration;
   final List<HighlightSegment> segments;
   final String message;
+  final String? videoUrl;
 
   const HighlightFeedback({
     required this.sessionId,
     required this.totalDuration,
     required this.segments,
     required this.message,
+    this.videoUrl,
   });
 
   factory HighlightFeedback.fromHighlights({
     required String sessionId,
     required int durationSec,
     required List<Map<String, dynamic>> highlights,
+    String? videoUrl,
   }) {
     final segments = highlights.map((h) {
       return HighlightSegment(
@@ -39,6 +42,7 @@ class HighlightFeedback {
       totalDuration: Duration(seconds: durationSec > 0 ? durationSec : 60),
       segments: segments,
       message: messages.isEmpty ? '하이라이트 피드백이 없습니다.' : messages,
+      videoUrl: videoUrl,
     );
   }
 

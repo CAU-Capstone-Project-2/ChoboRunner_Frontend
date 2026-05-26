@@ -43,6 +43,59 @@ class RunSessionApiService {
     return RunSession.fromJson(decoded as Map<String, dynamic>);
   }
 
+  Future<void> deleteRun(String id) async {
+    final res = await _client.delete(
+      _uri('/api/runs/$id'),
+      headers: defaultHeaders(),
+    );
+    if (res.statusCode != 200 && res.statusCode != 204) {
+      throw Exception(
+          'DELETE /api/runs/$id failed (${res.statusCode}): ${res.body}');
+    }
+  }
+
+  /// runId에 연결된 하이라이트를 조회 후 개별 삭제.
+  Future<void> deleteHighlightsByRun(String runId) async {
+    final listRes = await _client.get(
+      _uri('/api/highlights/by-run/$runId'),
+      headers: defaultHeaders(),
+    );
+    if (listRes.statusCode != 200) return;
+
+    final decoded = jsonDecode(utf8.decode(listRes.bodyBytes));
+    if (decoded is! List) return;
+
+    for (final item in decoded) {
+      final id = item['id'];
+      if (id == null) continue;
+      await _client.delete(
+        _uri('/api/highlights/$id'),
+        headers: defaultHeaders(),
+      );
+    }
+  }
+
+  /// runId에 연결된 피드백 로그를 조회 후 개별 삭제.
+  Future<void> deleteFeedbacksByRun(String runId) async {
+    final listRes = await _client.get(
+      _uri('/api/feedbacks/by-run/$runId'),
+      headers: defaultHeaders(),
+    );
+    if (listRes.statusCode != 200) return;
+
+    final decoded = jsonDecode(utf8.decode(listRes.bodyBytes));
+    if (decoded is! List) return;
+
+    for (final item in decoded) {
+      final id = item['id'];
+      if (id == null) continue;
+      await _client.delete(
+        _uri('/api/feedbacks/$id'),
+        headers: defaultHeaders(),
+      );
+    }
+  }
+
   /// 원본 mp4를 업로드하여 AI 오버레이 합성 요청.
   Future<RunSession> uploadOverlay({
     required String runSessionId,

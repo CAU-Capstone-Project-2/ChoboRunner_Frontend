@@ -312,19 +312,50 @@ class _CameraArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: AppColors.cameraPlaceholder),
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: controller.value.previewSize?.height ?? 1,
-              height: controller.value.previewSize?.width ?? 1,
-              child: CameraPreview(controller),
-            ),
-          ),
-        ],
+      child: ValueListenableBuilder<CameraValue>(
+        valueListenable: controller,
+        builder: (context, value, _) {
+          final pw = value.previewSize?.width ?? 1;
+          final ph = value.previewSize?.height ?? 1;
+          final isRecording = value.isRecordingVideo;
+
+          if (isRecording) {
+            // 녹화 중: CameraX SurfaceProcessor GL 트랜스폼 회전 미반영 → 90° CCW 보정.
+            // SizedBox는 텍스처 원본 크기(pw×ph) 그대로 써야 왜곡 없음.
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Container(color: AppColors.cameraPlaceholder),
+                RotatedBox(
+                  quarterTurns: 3,
+                  child: FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: pw,
+                      height: ph,
+                      child: CameraPreview(controller),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(color: AppColors.cameraPlaceholder),
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: ph,
+                  height: pw,
+                  child: CameraPreview(controller),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -498,7 +529,6 @@ class _PrimaryAction extends StatelessWidget {
           final elapsed = wsState.elapsedSec;
           await wsVm.stopCapture();
           wsVm.sendStop();
-          wsVm.updateRunSession();
           if (context.mounted) {
             context.go('${AppRoutes.captureFinish}?elapsedSec=$elapsed');
           }

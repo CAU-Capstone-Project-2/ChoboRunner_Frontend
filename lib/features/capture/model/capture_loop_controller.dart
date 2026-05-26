@@ -45,6 +45,9 @@ class CaptureLoopStats {
 ///
 /// 백프레셔: 이전 tick의 인코딩/송신이 끝나지 않았으면 새 tick은 드롭.
 /// (인코딩이 100~200ms 걸릴 수 있어 33ms 타이머가 누적되어 메모리 폭발하는 것 방지.)
+///
+/// MP4 녹화: startVideoRecording(onAvailable:)으로 녹화와 프레임 수신을 동시에
+/// 수행한다. 녹화 실패 시 startImageStream 폴백.
 class CaptureLoopController {
   CaptureLoopController({
     required this.camera,
@@ -68,6 +71,10 @@ class CaptureLoopController {
   Timer? _timer;
   bool _isProcessing = false;
 
+  /// 녹화된 MP4 파일 경로. stop() 후 non-null이면 업로드 대상.
+  String? _recordedFilePath;
+  String? get recordedFilePath => _recordedFilePath;
+
   /// 프레임 캡처 시각을 백엔드에 전달할 단조 시계.
   /// start() 시점에 reset+start.
   final Stopwatch _monoClock = Stopwatch();
@@ -75,22 +82,28 @@ class CaptureLoopController {
   /// 최근 전송 시각 큐 (최근 1초 윈도우)
   final List<DateTime> _recentSendTimes = [];
 
-  /// 루프 시작
+  /// 루프 시작 (녹화 + WS 프레임 전송 동시)
   ///
-  /// 내부에서 camera.startStream()도 함께 호출한다.
-  /// WebSocket이 연결되지 않은 상태에서도 호출 가능 (송신은 자동 false 반환).
+  /// camera.startRecording()으로 MP4 녹화와 프레임 콜백을 동시에 받는다.
+  /// 녹화 시작에 실패하면 startStream() 폴백으로 WS 전송만 유지.
   Future<void> start() async {
     if (_timer != null) return; // 이미 동작 중
     stats.value = const CaptureLoopStats(isRunning: true);
+    _recordedFilePath = null;
 
     _monoClock
       ..reset()
       ..start();
 
     try {
-      await camera.startStream();
-    } catch (_) {
-      // 스트림 시작 실패해도 루프는 돌게 두고 에러로 카운트
+      await camera.startRecording();
+    } catch (e) {
+      // 녹화 시작 실패 → 프레임 스트림만이라도 시작
+      // ignore: avoid_print
+      print('[CaptureLoop] recording failed, falling back to stream: $e');
+      try {
+        await camera.startStream();
+      } catch (_) {}
     }
 
     _timer = Timer.periodic(tickInterval, (_) => _onTick());
@@ -98,8 +111,8 @@ class CaptureLoopController {
 
   /// 루프 종료
   ///
-  /// 진행 중인 인코딩/송신은 기다리지 않고 타이머만 즉시 취소.
-  /// camera.stopStream()도 함께 호출.
+  /// 녹화 중이면 stopRecording()으로 MP4 파일 경로 획득.
+  /// 스트림만 동작 중이면 stopStream().
   Future<void> stop() async {
     _timer?.cancel();
     _timer = null;
@@ -108,12 +121,17 @@ class CaptureLoopController {
     _monoClock.stop();
     stats.value = stats.value.copyWith(isRunning: false, sendFps: 0.0);
 
-    await camera.stopStream();
+    if (camera.isRecording) {
+      _recordedFilePath = await camera.stopRecording();
+    } else {
+      await camera.stopStream();
+    }
   }
 
   /// 통계 리셋 (start 전에 호출하면 새 측정 세션처럼 보임)
   void reset() {
     _recentSendTimes.clear();
+    _recordedFilePath = null;
     stats.value = const CaptureLoopStats();
   }
 

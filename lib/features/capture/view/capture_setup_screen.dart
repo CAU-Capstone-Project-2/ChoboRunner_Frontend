@@ -179,11 +179,6 @@ class _MainContent extends ConsumerWidget {
             ),
           ),
 
-          // 인식 상태 (모드 무관 공통, countdown 모드에선 인식됨 고정)
-          _RecognitionStatus(
-            isCountdown: setupState.mode == SetupMode.countdown,
-          ),
-
           const SizedBox(height: 16),
 
           // 모드별 분기 영역
@@ -225,37 +220,6 @@ class _CameraArea extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ─────────── 인식 상태 ───────────
-
-class _RecognitionStatus extends StatelessWidget {
-  const _RecognitionStatus({required this.isCountdown});
-  final bool isCountdown;
-
-  @override
-  Widget build(BuildContext context) {
-    // 단계 B에서 백엔드 pose_detected 누적 추적으로 결정.
-    // 지금은 임시:
-    // - countdown 모드면 인식됨 고정 (초록)
-    // - setup 모드면 인식 중 (노랑) 표시
-    final (color, label) = isCountdown
-        ? (AppColors.statusOk, '사용자가 인식되었습니다')
-        : (AppColors.statusPending, '사용자를 인식하는 중입니다');
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 8),
-        Text(label, style: AppTypography.label),
-      ],
     );
   }
 }

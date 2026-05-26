@@ -1,10 +1,12 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 
 /// 카메라 하드웨어를 감싸는 서비스.
 ///
 /// - 카메라 목록 조회 및 후면 카메라 선택
 /// - CameraController 초기화/dispose
 /// - image stream(YUV420) 시작/정지 및 최신 프레임 캐시
+/// - MP4 녹화 (startVideoRecording + onAvailable 콜백으로 프레임 동시 수신)
 ///
 /// 단일 프레임 캡처(takePicture) 방식은 제거됨. CaptureLoopController가
 /// 33ms 주기로 takeLatest()를 호출해 최신 캐시 프레임을 사용한다.
@@ -13,6 +15,7 @@ class CameraService {
   List<CameraDescription> _availableCameras = const [];
   CameraDescription? _selectedCamera;
   bool _streaming = false;
+  bool _recording = false;
 
   /// 외부에서 프리뷰 위젯이 사용할 컨트롤러 (초기화 후 non-null)
   CameraController? get controller => _controller;
@@ -62,6 +65,7 @@ class CameraService {
     );
 
     await _controller!.initialize();
+    await _controller!.lockCaptureOrientation(DeviceOrientation.portraitUp);
   }
 
   /// image stream 시작.
@@ -97,6 +101,7 @@ class CameraService {
   }
 
   bool get isStreaming => _streaming;
+  bool get isRecording => _recording;
 
   CameraImage? _latestImage;
 
@@ -104,9 +109,54 @@ class CameraService {
   /// 호출 후 캐시를 비우지 않으므로 같은 프레임을 두 번 가져갈 수 있다.
   CameraImage? takeLatest() => _latestImage;
 
+  /// MP4 녹화 + 프레임 스트림 동시 시작.
+  ///
+  /// camera 플러그인의 startVideoRecording(onAvailable:)을 사용해
+  /// MP4 파일 녹화와 YUV420 프레임 콜백을 동시에 받는다.
+  /// CaptureLoopController는 takeLatest()로 프레임을 가져가 WS로 전송.
+  Future<void> startRecording() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      throw StateError('카메라가 초기화되지 않았습니다');
+    }
+    if (_recording) return;
+
+    await controller.startVideoRecording(
+      onAvailable: (image) {
+        _latestImage = image;
+      },
+    );
+    // 녹화 시작 시 Camera2 세션이 재생성되므로 방향 재고정
+    await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
+    _recording = true;
+    _streaming = true;
+  }
+
+  /// MP4 녹화 정지. 녹화된 파일 경로를 반환.
+  Future<String?> stopRecording() async {
+    if (!_recording) return null;
+    final controller = _controller;
+    if (controller == null) return null;
+
+    _recording = false;
+    _streaming = false;
+    _latestImage = null;
+
+    try {
+      final file = await controller.stopVideoRecording();
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 리소스 정리
   Future<void> dispose() async {
-    await stopStream();
+    if (_recording) {
+      await stopRecording();
+    } else {
+      await stopStream();
+    }
     await _controller?.dispose();
     _controller = null;
     _selectedCamera = null;

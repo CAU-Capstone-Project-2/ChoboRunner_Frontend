@@ -45,4 +45,15 @@ class ReportApiService {
 
   Future<List<Map<String, dynamic>>> getFeedbacksByRun(String runId) =>
       _getList('/api/feedbacks/by-run/$runId');
+
+  Future<String?> getPresignedUrl(String key) async {
+    final res = await _client.get(
+      Uri.parse('$kApiBaseUrl/api/s3/presigned-url')
+          .replace(queryParameters: {'key': key}),
+      headers: defaultHeaders(),
+    );
+    if (res.statusCode != 200) return null;
+    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    return decoded['url'] as String?;
+  }
 }
