@@ -57,11 +57,25 @@ class AnalysisReportScreen extends ConsumerWidget {
                 ),
               );
             }
+            final scoredMetrics = report.metrics
+                .where((m) => m.type.hasScore)
+                .toList();
+            final footStrikeMetric = report.metrics
+                .cast<ReportMetric?>()
+                .firstWhere(
+                  (m) => m!.type == MetricType.footStrikePattern,
+                  orElse: () => null,
+                );
+
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
-                if (report.metrics.isNotEmpty)
-                  _ScoreChartCard(metrics: report.metrics),
+                if (scoredMetrics.isNotEmpty)
+                  _ScoreChartCard(metrics: scoredMetrics),
+                if (footStrikeMetric != null) ...[
+                  const SizedBox(height: 12),
+                  _FootStrikePatternCard(metric: footStrikeMetric),
+                ],
                 const SizedBox(height: 24),
                 if (report.totalFeedback != null &&
                     report.totalFeedback!.isNotEmpty) ...[
@@ -259,7 +273,18 @@ class _MetricEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _scoreColor(metric.displayScore);
+    final isFootStrike = metric.type == MetricType.footStrikePattern;
+    final footPattern =
+        isFootStrike ? FootStrikePattern.fromStatus(metric.status) : null;
+
+    // 라벨 아래 보조 텍스트: 발 착지 패턴이면 한글만, 그 외는 정상/주의
+    final statusText = isFootStrike ? footPattern?.koreanLabel : metric.status;
+    final statusColor = isFootStrike
+        ? footStrikeColor(footPattern)
+        : (metric.status == '주의' ? AppColors.scoreLow : AppColors.scoreHigh);
+
+    final scoreColor = _scoreColor(metric.displayScore);
+
     return Material(
       color: AppColors.analysisCard,
       borderRadius: BorderRadius.circular(16),
@@ -283,33 +308,33 @@ class _MetricEntryCard extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (metric.status != null)
+                    if (statusText != null)
                       Text(
-                        metric.status!,
+                        statusText,
                         style: TextStyle(
                           fontSize: 12,
-                          color: metric.status == '주의'
-                              ? AppColors.scoreLow
-                              : AppColors.scoreHigh,
+                          color: statusColor,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                   ],
                 ),
               ),
-              if (metric.score != null)
+              if (isFootStrike && footPattern != null)
+                _PatternBadge(pattern: footPattern, size: 36, fontSize: 11)
+              else if (metric.score != null)
                 Container(
                   width: 36,
                   height: 36,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: color, width: 2),
+                    border: Border.all(color: scoreColor, width: 2),
                   ),
                   child: Text(
                     '${metric.score}',
                     style: TextStyle(
-                      color: color,
+                      color: scoreColor,
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                     ),
@@ -328,6 +353,113 @@ class _MetricEntryCard extends StatelessWidget {
     );
   }
 }
+
+/// 발 착지 패턴 약어(FFS/MFS/RFS) 원형 배지.
+/// 점수형 지표의 `_ScoreCircle` / `_LargeScoreCircle` 자리에 대체로 사용.
+class _PatternBadge extends StatelessWidget {
+  const _PatternBadge({
+    required this.pattern,
+    required this.size,
+    required this.fontSize,
+  });
+
+  final FootStrikePattern pattern;
+  final double size;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = footStrikeColor(pattern);
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Text(
+        pattern.abbreviation,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.3,
+        ),
+      ),
+    );
+  }
+}
+
+/// 외부에서 PatternBadge를 사용하기 위한 팩토리.
+Widget buildPatternBadge({
+  required FootStrikePattern pattern,
+  required double size,
+  required double fontSize,
+}) =>
+    _PatternBadge(pattern: pattern, size: size, fontSize: fontSize);
+
+class _FootStrikePatternCard extends StatelessWidget {
+  const _FootStrikePatternCard({required this.metric});
+
+  final ReportMetric metric;
+
+  @override
+  Widget build(BuildContext context) {
+    final pattern = FootStrikePattern.fromStatus(metric.status);
+    final color = footStrikeColor(pattern);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '발 착지 패턴',
+                  style: AppTypography.bodyMuted.copyWith(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  pattern?.displayLabel ?? (metric.status ?? '측정 안 됨'),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 발 착지 패턴 → 색상.
+/// 의학적 우열이 아닌 시각적 구분 목적.
+Color footStrikeColor(FootStrikePattern? pattern) => switch (pattern) {
+      FootStrikePattern.ffs => AppColors.scoreHigh,
+      FootStrikePattern.mfs => AppColors.feedbackInfo,
+      FootStrikePattern.rfs => AppColors.feedbackWarning,
+      null => AppColors.textMuted,
+    };
 
 Color _scoreColor(int score) {
   if (score >= 75) return AppColors.scoreHigh;

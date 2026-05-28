@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/highlight_feedback.dart';
+import '../model/report_metric.dart';
 import '../viewmodel/highlight_feedback_viewmodel.dart';
 
 class HighlightFeedbackScreen extends ConsumerWidget {
@@ -352,7 +353,7 @@ class _SegmentCard extends StatelessWidget {
               children: [
                 Text(
                   '${_format(segment.start)} ~ ${_format(segment.end)}'
-                  '${segment.issueType != null ? '  [${segment.issueType}]' : ''}',
+                  '${_issueLabel(segment.issueType)}',
                   style: AppTypography.bodyMuted.copyWith(fontSize: 12),
                 ),
                 if (segment.message != null) ...[
@@ -374,5 +375,11 @@ class _SegmentCard extends StatelessWidget {
     final m = d.inMinutes;
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$m:$s';
+  }
+
+  static String _issueLabel(String? issueType) {
+    if (issueType == null || issueType.isEmpty) return '';
+    final mapped = MetricType.fromBackendType(issueType)?.label ?? issueType;
+    return '  [$mapped]';
   }
 }

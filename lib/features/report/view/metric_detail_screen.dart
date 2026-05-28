@@ -5,6 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/report_metric.dart';
 import '../viewmodel/analysis_report_viewmodel.dart';
+import 'analysis_report_screen.dart' show buildPatternBadge;
 
 class MetricDetailScreen extends ConsumerWidget {
   const MetricDetailScreen({
@@ -76,13 +77,14 @@ class MetricDetailScreen extends ConsumerWidget {
                     title: '개선 방법',
                     body: metric.improvement ?? '데이터가 없습니다.',
                   ),
-                  const SizedBox(height: 28),
-                  _ScoreComparison(
-                    reference: metric.referenceValue,
-                    measured: metric.measuredValue,
-                    unit: metric.unit,
-                    status: metric.status,
-                  ),
+                  if (metric.type != MetricType.footStrikePattern) ...[
+                    const SizedBox(height: 28),
+                    _ScoreComparison(
+                      reference: metric.referenceValue,
+                      measured: metric.measuredValue,
+                      unit: metric.unit,
+                    ),
+                  ],
                 ],
               ),
             );
@@ -99,6 +101,10 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFootStrike = metric.type == MetricType.footStrikePattern;
+    final footPattern =
+        isFootStrike ? FootStrikePattern.fromStatus(metric.status) : null;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -115,7 +121,10 @@ class _Header extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        if (metric.score != null) _LargeScoreCircle(score: metric.score!),
+        if (isFootStrike && footPattern != null)
+          buildPatternBadge(pattern: footPattern, size: 96, fontSize: 26)
+        else if (metric.score != null)
+          _LargeScoreCircle(score: metric.score!),
       ],
     );
   }
@@ -177,13 +186,11 @@ class _ScoreComparison extends StatelessWidget {
     required this.reference,
     required this.measured,
     required this.unit,
-    this.status,
   });
 
   final double? reference;
   final double? measured;
   final String? unit;
-  final String? status;
 
   @override
   Widget build(BuildContext context) {
@@ -210,29 +217,6 @@ class _ScoreComparison extends StatelessWidget {
             ),
           ],
         ),
-        if (status != null) ...[
-          const SizedBox(height: 16),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              decoration: BoxDecoration(
-                color: status == '주의'
-                    ? AppColors.scoreLow.withValues(alpha: 0.15)
-                    : AppColors.scoreHigh.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                status!,
-                style: TextStyle(
-                  color:
-                      status == '주의' ? AppColors.scoreLow : AppColors.scoreHigh,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }

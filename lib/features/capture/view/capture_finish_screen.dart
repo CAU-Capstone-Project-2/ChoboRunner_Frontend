@@ -57,12 +57,13 @@ class _CaptureFinishScreenState extends ConsumerState<CaptureFinishScreen> {
                   elapsedSec: widget.elapsedSec,
                   isFailed: wsState.finalResult?.status ==
                       AnalysisStatus.failed,
-                  onGoHome: () {
-                    ref
-                        .read(captureWebSocketViewModelProvider.notifier)
-                        .releaseCamera();
+                  onGoHome: () async {
+                    final vm = ref.read(
+                        captureWebSocketViewModelProvider.notifier);
+                    await vm.waitForRunSessionUpdate();
+                    vm.releaseCamera();
                     ref.invalidate(reportListProvider);
-                    context.go(AppRoutes.home);
+                    if (context.mounted) context.go(AppRoutes.home);
                   },
                 )
               : _AnalyzingBody(elapsedSec: widget.elapsedSec),

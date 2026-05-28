@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/background/overlay_upload_task.dart';
 import '../../../core/tts/tts_provider.dart';
 import '../../../core/tts/tts_service.dart';
 import '../../auth/viewmodel/auth_viewmodel.dart';
@@ -158,6 +158,13 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   Timer? _elapsedTimer;
   bool _stopped = false;
 
+  /// updateRunSession 완료를 외부에서 await 할 수 있는 Completer.
+  Completer<void>? _runSessionUpdateCompleter;
+
+  /// updateRunSession이 완료될 때까지 대기.
+  Future<void> waitForRunSessionUpdate() =>
+      _runSessionUpdateCompleter?.future ?? Future.value();
+
   /// 같은 metric 재발화 최소 간격 (cooldown).
   static const Duration _ttsRepeatCooldown = Duration(seconds: 4);
 
@@ -296,8 +303,8 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     }
   }
 
-  /// 녹화된 MP4를 서버에 업로드하여 AI 오버레이 합성 요청.
-  /// fire-and-forget으로 호출. 상태만 업데이트.
+  /// 녹화된 MP4를 WorkManager 백그라운드 태스크로 업로드 예약.
+  /// 앱이 종료되어도 OS가 업로드 완료를 보장한다.
   Future<void> _uploadOverlayVideo() async {
     final filePath = _loop.recordedFilePath;
     final runId = state.currentRunId;
@@ -308,25 +315,18 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     );
 
     try {
-      await _runApi.uploadOverlay(
+      await enqueueOverlayUpload(OverlayUploadParams(
         runSessionId: runId,
-        videoFile: File(filePath),
-      );
-      state = state.copyWith(
-        overlayUploadStatus: OverlayUploadStatus.done,
-      );
+        filePath: filePath,
+      ));
       // ignore: avoid_print
-      print('[Overlay] upload success for run=$runId');
+      print('[Overlay] upload enqueued for run=$runId');
     } catch (e) {
       state = state.copyWith(
         overlayUploadStatus: OverlayUploadStatus.error,
       );
       // ignore: avoid_print
-      print('[Overlay] upload failed: $e');
-    } finally {
-      try {
-        await File(filePath).delete();
-      } catch (_) {}
+      print('[Overlay] enqueue failed: $e');
     }
   }
 
@@ -351,6 +351,7 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     final userId = ref.read(authViewModelProvider).userId;
     if (runId == null || userId == null) return;
 
+    _runSessionUpdateCompleter = Completer<void>();
     try {
       await _runApi.updateRun(RunSession(
         id: runId,
@@ -358,9 +359,13 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
         status: 'DONE',
         duration: state.elapsedSec,
       ));
+      // ignore: avoid_print
+      print('[RunSession] updated to DONE: id=$runId, duration=${state.elapsedSec}s');
     } catch (e) {
       // ignore: avoid_print
       print('[RunSession] update failed: $e');
+    } finally {
+      _runSessionUpdateCompleter?.complete();
     }
   }
 

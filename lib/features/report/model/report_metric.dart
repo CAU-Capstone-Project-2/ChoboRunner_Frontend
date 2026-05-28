@@ -11,10 +11,55 @@ enum MetricType {
         MetricType.footStrikePattern => '발 착지 패턴',
       };
 
+  /// 백엔드 key → MetricType.
+  /// 백엔드가 3가지 표기를 혼용하므로 모두 수용:
+  /// - DetailedReport.type: `trunk_lean` / `initial_knee_flexion` / `foot_strike_pattern`
+  /// - feedback_messages[].metric: `trunk_lean` / `knee_flexion` / `foot_strike`
+  /// - metric_details 객체 키: `*_deg` 접미사
   static MetricType? fromBackendType(String? type) => switch (type) {
-        'trunk_lean' => MetricType.torsoAngle,
-        'initial_knee_flexion' => MetricType.kneeAngleOnContact,
-        'foot_strike_pattern' => MetricType.footStrikePattern,
+        'trunk_lean' || 'trunk_lean_deg' => MetricType.torsoAngle,
+        'initial_knee_flexion' ||
+        'initial_knee_flexion_deg' ||
+        'knee_flexion' =>
+          MetricType.kneeAngleOnContact,
+        'foot_strike_pattern' ||
+        'foot_strike_angle_deg' ||
+        'foot_strike' =>
+          MetricType.footStrikePattern,
+        _ => null,
+      };
+
+  /// 점수형 지표인지 (foot strike pattern은 점수가 아닌 분류 결과)
+  bool get hasScore => this != MetricType.footStrikePattern;
+}
+
+/// 발 착지 패턴 (foot strike pattern) 분류.
+/// 백엔드 `DetailedReport.status` 값으로 들어옴.
+enum FootStrikePattern {
+  rfs, // Rearfoot Strike
+  mfs, // Midfoot Strike
+  ffs; // Forefoot Strike
+
+  String get koreanLabel => switch (this) {
+        FootStrikePattern.rfs => '뒤꿈치 착지',
+        FootStrikePattern.mfs => '중족부 착지',
+        FootStrikePattern.ffs => '앞꿈치 착지',
+      };
+
+  String get abbreviation => switch (this) {
+        FootStrikePattern.rfs => 'RFS',
+        FootStrikePattern.mfs => 'MFS',
+        FootStrikePattern.ffs => 'FFS',
+      };
+
+  /// "앞꿈치 착지 (FFS)" 형식
+  String get displayLabel => '$koreanLabel ($abbreviation)';
+
+  static FootStrikePattern? fromStatus(String? status) =>
+      switch (status?.toUpperCase()) {
+        'RFS' => FootStrikePattern.rfs,
+        'MFS' => FootStrikePattern.mfs,
+        'FFS' => FootStrikePattern.ffs,
         _ => null,
       };
 }

@@ -8,11 +8,23 @@ import '../../../core/theme/app_typography.dart';
 import '../../report/model/report_session.dart';
 import '../../report/viewmodel/report_list_viewmodel.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    ref.listenManual(reportListProvider, (_, __) {});
+    Future.microtask(() => ref.invalidate(reportListProvider));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final asyncSessions = ref.watch(reportListProvider);
 
     return Scaffold(
