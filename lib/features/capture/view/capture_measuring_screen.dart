@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -229,13 +228,6 @@ class _MainContent extends ConsumerWidget {
     final wsState = ref.watch(captureWebSocketViewModelProvider);
     final wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
     final cameraVm = ref.read(cameraViewModelProvider.notifier);
-    final controller = cameraVm.service.controller;
-
-    if (controller == null || !controller.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.textPrimary),
-      );
-    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -247,7 +239,6 @@ class _MainContent extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 16),
               child: _CameraArea(
-                controller: controller,
                 latestJpeg: wsVm.latestJpegNotifier,
               ),
             ),
@@ -308,18 +299,13 @@ class _MainContent extends ConsumerWidget {
 // ─────────── 카메라 영역 ───────────
 
 class _CameraArea extends StatelessWidget {
-  const _CameraArea({
-    required this.controller,
-    required this.latestJpeg,
-  });
-  final CameraController controller;
+  const _CameraArea({required this.latestJpeg});
   final ValueListenable<Uint8List?> latestJpeg;
 
   @override
   Widget build(BuildContext context) {
-    // 우리가 직접 sensorOrientation 적용해 회전시킨 JPEG를 그대로 띄움.
-    // CameraX SurfaceProcessor의 OEM별 회전 차이에 영향 받지 않음.
-    // 첫 프레임 도착 전(WS 연결~첫 인코딩까지 짧은 순간)은 CameraPreview 폴백.
+    // 네이티브 Camera2가 sensorOrientation 적용해 회전한 JPEG를 그대로 띄움.
+    // 첫 프레임 도착 전(카메라 open ~ 첫 인코딩까지 ~1초)은 로딩 표시.
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: ValueListenableBuilder<Uint8List?>(
@@ -338,20 +324,10 @@ class _CameraArea extends StatelessWidget {
                   height: double.infinity,
                 )
               else
-                ValueListenableBuilder<CameraValue>(
-                  valueListenable: controller,
-                  builder: (context, value, _) {
-                    final pw = value.previewSize?.width ?? 1;
-                    final ph = value.previewSize?.height ?? 1;
-                    return FittedBox(
-                      fit: BoxFit.cover,
-                      child: SizedBox(
-                        width: ph,
-                        height: pw,
-                        child: CameraPreview(controller),
-                      ),
-                    );
-                  },
+                const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.textPrimary,
+                  ),
                 ),
             ],
           );
