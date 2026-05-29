@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/background/overlay_upload_task.dart';
@@ -254,6 +254,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   bool sendFrame(Uint8List frame, {required int tsMs}) {
     return _service.sendFrame(frame, tsMs: tsMs);
   }
+
+  /// 측정 화면 미리보기용 최신 JPEG.
+  ValueListenable<Uint8List?> get latestJpegNotifier => _loop.latestJpeg;
 
   /// 측정 시작 — session_start 전송 후 캡처 루프 가동
   void startCapture() {

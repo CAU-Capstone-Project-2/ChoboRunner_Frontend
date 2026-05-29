@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -246,7 +246,10 @@ class _MainContent extends ConsumerWidget {
             flex: 5,
             child: Padding(
               padding: const EdgeInsets.only(top: 8, bottom: 16),
-              child: _CameraArea(controller: controller),
+              child: _CameraArea(
+                controller: controller,
+                latestJpeg: wsVm.latestJpegNotifier,
+              ),
             ),
           ),
 
@@ -305,19 +308,54 @@ class _MainContent extends ConsumerWidget {
 // ─────────── 카메라 영역 ───────────
 
 class _CameraArea extends StatelessWidget {
-  const _CameraArea({required this.controller});
+  const _CameraArea({
+    required this.controller,
+    required this.latestJpeg,
+  });
   final CameraController controller;
+  final ValueListenable<Uint8List?> latestJpeg;
 
   @override
   Widget build(BuildContext context) {
+    // 우리가 직접 sensorOrientation 적용해 회전시킨 JPEG를 그대로 띄움.
+    // CameraX SurfaceProcessor의 OEM별 회전 차이에 영향 받지 않음.
+    // 첫 프레임 도착 전(WS 연결~첫 인코딩까지 짧은 순간)은 CameraPreview 폴백.
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: AppColors.cameraPlaceholder),
-          CameraPreview(controller),
-        ],
+      child: ValueListenableBuilder<Uint8List?>(
+        valueListenable: latestJpeg,
+        builder: (context, jpeg, _) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(color: AppColors.cameraPlaceholder),
+              if (jpeg != null)
+                Image.memory(
+                  jpeg,
+                  gaplessPlayback: true,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                )
+              else
+                ValueListenableBuilder<CameraValue>(
+                  valueListenable: controller,
+                  builder: (context, value, _) {
+                    final pw = value.previewSize?.width ?? 1;
+                    final ph = value.previewSize?.height ?? 1;
+                    return FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: ph,
+                        height: pw,
+                        child: CameraPreview(controller),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          );
+        },
       ),
     );
   }

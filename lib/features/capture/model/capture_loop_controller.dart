@@ -68,6 +68,12 @@ class CaptureLoopController {
   final ValueNotifier<CaptureLoopStats> stats =
       ValueNotifier(const CaptureLoopStats());
 
+  /// 최신 인코딩된 JPEG (미리보기용).
+  /// CameraX SurfaceProcessor의 OEM별 회전 차이를 우회하려고
+  /// WS 송신용 JPEG를 그대로 화면에 띄운다. JPEG는 네이티브에서
+  /// sensorOrientation을 명시 적용해 회전하므로 모든 폰에서 정방향.
+  final ValueNotifier<Uint8List?> latestJpeg = ValueNotifier(null);
+
   Timer? _timer;
   bool _isProcessing = false;
 
@@ -133,12 +139,14 @@ class CaptureLoopController {
     _recentSendTimes.clear();
     _recordedFilePath = null;
     stats.value = const CaptureLoopStats();
+    latestJpeg.value = null;
   }
 
   /// 컨트롤러 폐기
   void dispose() {
     stop();
     stats.dispose();
+    latestJpeg.dispose();
   }
 
   // ─────────── 내부 ───────────
@@ -190,6 +198,8 @@ class CaptureLoopController {
         );
         return;
       }
+
+      latestJpeg.value = jpeg;
 
       final ok = webSocket.sendFrame(jpeg, tsMs: tsMs);
       if (ok) {
