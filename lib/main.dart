@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -17,8 +18,9 @@ void callbackDispatcher() {
   });
 }
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   Workmanager().initialize(callbackDispatcher);
   runApp(const ProviderScope(child: ChoboRunnerApp()));
 }

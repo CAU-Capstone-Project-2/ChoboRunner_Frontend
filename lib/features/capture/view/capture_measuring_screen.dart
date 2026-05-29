@@ -320,23 +320,27 @@ class _CameraArea extends StatelessWidget {
           final isRecording = value.isRecordingVideo;
 
           if (isRecording) {
-            // 녹화 중: CameraX SurfaceProcessor GL 트랜스폼 회전 미반영 → 90° CCW 보정.
-            // SizedBox는 텍스처 원본 크기(pw×ph) 그대로 써야 왜곡 없음.
+            // 녹화 중 회전 보정: OEM/CameraX 구현에 따라 SurfaceProcessor가
+            // 이미 portrait 방향으로 회전을 적용한 경우(ph>pw)와 그렇지 않은
+            // 경우(pw>ph)가 갈리므로 previewSize 종횡비로 분기.
+            //  - 이미 회전됨(portrait): RotatedBox 불필요, w/h 그대로
+            //  - 미회전(landscape): 90° CCW 보정 필요
+            final alreadyRotated = ph > pw;
+            final preview = FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: pw,
+                height: ph,
+                child: CameraPreview(controller),
+              ),
+            );
             return Stack(
               fit: StackFit.expand,
               children: [
                 Container(color: AppColors.cameraPlaceholder),
-                RotatedBox(
-                  quarterTurns: 3,
-                  child: FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: pw,
-                      height: ph,
-                      child: CameraPreview(controller),
-                    ),
-                  ),
-                ),
+                alreadyRotated
+                    ? preview
+                    : RotatedBox(quarterTurns: 3, child: preview),
               ],
             );
           }
