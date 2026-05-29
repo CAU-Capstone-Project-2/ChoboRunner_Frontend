@@ -5,7 +5,7 @@ import '../model/report_api_service.dart';
 import '../model/report_metric.dart';
 
 final analysisReportProvider =
-    FutureProvider.family<AnalysisReport?, String>((ref, runId) async {
+    FutureProvider.autoDispose.family<AnalysisReport?, String>((ref, runId) async {
   final api = ReportApiService();
 
   final reports = await api.getReportsByRun(runId);
