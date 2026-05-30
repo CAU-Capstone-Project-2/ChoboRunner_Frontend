@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -39,6 +40,11 @@ class _CaptureMeasuringScreenState
   @override
   void initState() {
     super.initState();
+    // 측정 흐름은 landscape 강제. dispose에서 portrait 복원.
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
       _wsVm!.resetSession();
@@ -51,6 +57,7 @@ class _CaptureMeasuringScreenState
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
@@ -229,67 +236,58 @@ class _MainContent extends ConsumerWidget {
     final wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
     final cameraVm = ref.read(cameraViewModelProvider.notifier);
 
+    // landscape 가로 레이아웃: 좌측 카메라(flex 6) + 우측 컨트롤(flex 4).
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
         children: [
-          // 카메라 영역 (직사각형, 화면 상부 ~55%)
           Expanded(
-            flex: 5,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 16),
-              child: _CameraArea(
-                latestJpeg: wsVm.latestJpegNotifier,
+            flex: 6,
+            child: _CameraArea(latestJpeg: wsVm.latestJpegNotifier),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 4,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 4),
+                  _RecognitionStatusRow(wsState: wsState),
+                  const SizedBox(height: 12),
+                  _FeedbackArea(wsState: wsState),
+                  const SizedBox(height: 16),
+                  _RunningTime(wsState: wsState),
+                  const SizedBox(height: 16),
+                  _PrimaryAction(
+                    wsState: wsState,
+                    wsVm: wsVm,
+                    cameraVm: cameraVm,
+                    measurementStarted: measurementStarted,
+                  ),
+                  TextButton.icon(
+                    icon: Icon(
+                      showDebug ? Icons.bug_report : Icons.bug_report_outlined,
+                      size: 14,
+                      color: AppColors.textMuted,
+                    ),
+                    label: Text(
+                      showDebug ? '디버그 숨기기' : '디버그',
+                      style: AppTypography.debugLabel,
+                    ),
+                    onPressed: onToggleDebug,
+                  ),
+                  if (showDebug)
+                    _DebugPanel(
+                      wsState: wsState,
+                      wsVm: wsVm,
+                      cameraVm: cameraVm,
+                    ),
+                  const SizedBox(height: 8),
+                ],
               ),
             ),
           ),
-
-          // 사용자 인식 상태 placeholder (단계 B에서 채울 자리)
-          _RecognitionStatusRow(wsState: wsState),
-
-          const SizedBox(height: 16),
-
-          // 피드백 메시지 (priority 가장 높은 1개)
-          _FeedbackArea(wsState: wsState),
-
-          const SizedBox(height: 20),
-
-          // 러닝 시간 큰 글씨
-          _RunningTime(wsState: wsState),
-
-          const SizedBox(height: 20),
-
-          // 메인 액션 버튼 (라임 옐로우)
-          _PrimaryAction(
-            wsState: wsState,
-            wsVm: wsVm,
-            cameraVm: cameraVm,
-            measurementStarted: measurementStarted,
-          ),
-
-          // 디버그 토글
-          TextButton.icon(
-            icon: Icon(
-              showDebug ? Icons.bug_report : Icons.bug_report_outlined,
-              size: 14,
-              color: AppColors.textMuted,
-            ),
-            label: Text(
-              showDebug ? '디버그 숨기기' : '디버그',
-              style: AppTypography.debugLabel,
-            ),
-            onPressed: onToggleDebug,
-          ),
-
-          // 디버그 영역
-          if (showDebug)
-            _DebugPanel(
-              wsState: wsState,
-              wsVm: wsVm,
-              cameraVm: cameraVm,
-            ),
-
-          const SizedBox(height: 8),
         ],
       ),
     );
@@ -317,15 +315,14 @@ class _CameraArea extends StatelessWidget {
             children: [
               Container(color: AppColors.cameraPlaceholder),
               if (jpeg != null)
-                RotatedBox(
-                  quarterTurns: 1,
-                  child: Image.memory(
-                    jpeg,
-                    gaplessPlayback: true,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                  ),
+                // landscape orientation 강제 후엔 sensor와 화면 방향 동일.
+                // 회전 없이 그대로 fit.
+                Image.memory(
+                  jpeg,
+                  gaplessPlayback: true,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
                 )
               else
                 const Center(
