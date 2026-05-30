@@ -304,7 +304,8 @@ class _CameraArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 네이티브 Camera2가 sensorOrientation 적용해 회전한 JPEG를 그대로 띄움.
+    // 네이티브 Camera2가 센서 원본(landscape, rotation=0)을 그대로 푸시.
+    // 서버에는 landscape 그대로 전송하고, 화면만 RotatedBox로 90° 회전해 portrait-fit.
     // 첫 프레임 도착 전(카메라 open ~ 첫 인코딩까지 ~1초)은 로딩 표시.
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
@@ -316,12 +317,15 @@ class _CameraArea extends StatelessWidget {
             children: [
               Container(color: AppColors.cameraPlaceholder),
               if (jpeg != null)
-                Image.memory(
-                  jpeg,
-                  gaplessPlayback: true,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
+                RotatedBox(
+                  quarterTurns: 1,
+                  child: Image.memory(
+                    jpeg,
+                    gaplessPlayback: true,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
                 )
               else
                 const Center(

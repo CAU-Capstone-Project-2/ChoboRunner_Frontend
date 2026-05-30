@@ -230,11 +230,26 @@ class _VideoArea extends StatelessWidget {
       );
     }
 
+    // 영상은 native 비율 유지하면서 영역을 꽉 채우고 넘치는 좌우는 잘라냄.
+    // (landscape 영상이 portrait 영역에 letterbox로 작게 보이는 문제 해결)
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: AspectRatio(
-        aspectRatio: ctrl.value.aspectRatio,
-        child: VideoPlayer(ctrl),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: ctrl.value.size.width,
+                height: ctrl.value.size.height,
+                child: VideoPlayer(ctrl),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

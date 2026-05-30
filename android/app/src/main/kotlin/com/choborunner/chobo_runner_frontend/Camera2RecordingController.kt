@@ -65,7 +65,6 @@ class Camera2RecordingController(private val context: Context) {
     private var outputPath: String? = null
     private var lastFrameNanos: Long = 0L
     private var isRunning = false
-    private var frameCount = 0
 
     /**
      * 녹화 + 프레임 캡처 시작. 동기 메서드처럼 보이지만 카메라 open은 async라
@@ -83,7 +82,6 @@ class Camera2RecordingController(private val context: Context) {
         }
         outputPath = generateOutputPath()
         lastFrameNanos = 0L
-        frameCount = 0
 
         return try {
             startCameraThread()
@@ -191,11 +189,9 @@ class Camera2RecordingController(private val context: Context) {
                 }
                 lastFrameNanos = nowNs
 
-                val jpeg = FrameEncoderUtil.encodeFromImage(image, sensorOrientation, JPEG_QUALITY)
-                frameCount++
-                if (frameCount <= 3 || frameCount % 30 == 0) {
-                    Log.i(TAG, "frame#$frameCount encoded jpegSize=${jpeg.size} sinkNull=${frameSink == null}")
-                }
+                // landscape 전송 정책: 센서 원본 그대로(rotation=0) 인코딩.
+                // 화면 표시는 Flutter 측에서 RotatedBox로 회전해 portrait-fit으로 보여줌.
+                val jpeg = FrameEncoderUtil.encodeFromImage(image, 0, JPEG_QUALITY)
                 postFrame(jpeg)
             } catch (t: Throwable) {
                 Log.w(TAG, "frame encode failed", t)
@@ -226,7 +222,8 @@ class Camera2RecordingController(private val context: Context) {
         rec.setVideoFrameRate(VIDEO_FPS)
         rec.setVideoSize(TARGET_W, TARGET_H)
         rec.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-        rec.setOrientationHint(sensorOrientation)
+        // landscape 정책: MP4도 센서 원본 그대로 저장 (rotation hint=0).
+        rec.setOrientationHint(0)
         rec.prepare()
         recorderSurface = rec.surface
         mediaRecorder = rec

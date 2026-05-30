@@ -131,7 +131,6 @@ class CaptureLoopController {
   void reset() {
     _recentSendTimes.clear();
     _recordedFilePath = null;
-    _debugFrameCount = 0;
     stats.value = const CaptureLoopStats();
     latestJpeg.value = null;
   }
@@ -145,19 +144,11 @@ class CaptureLoopController {
 
   // ─────────── 내부 ───────────
 
-  int _debugFrameCount = 0;
-
   void _onJpegFrame(Uint8List jpeg) {
     latestJpeg.value = jpeg;
-    _debugFrameCount++;
 
     final tsMs = _monoClock.elapsedMilliseconds;
     final ok = webSocket.sendFrame(jpeg, tsMs: tsMs);
-
-    if (_debugFrameCount <= 3 || _debugFrameCount % 30 == 0) {
-      // ignore: avoid_print
-      print('[CaptureLoop] frame#$_debugFrameCount jpegSize=${jpeg.length} tsMs=$tsMs sent=$ok');
-    }
 
     if (ok) {
       _recordSendAndUpdateFps();
