@@ -289,7 +289,11 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   }
 
   /// 측정 정지 — 캡처 루프 멈춤 + 녹화 종료 (stop 메시지는 별도).
-  /// 녹화 파일이 있으면 오버레이 업로드를 fire-and-forget으로 시작.
+  ///
+  /// 오버레이 업로드는 여기서 시작하지 않는다.
+  /// analysis_result 수신 후 status가 failed가 아닌 경우에만 트리거된다.
+  /// (실패 시 업로드 → 서버가 이미 정리된/존재하지 않는 RunSession을 update해
+  ///  StaleStateException이 발생하는 문제 회피)
   Future<void> stopCapture() async {
     await _loop.stop();
 
@@ -298,12 +302,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
     _stopwatch?.stop();
-
-    // 분석 실패가 아닌 경우에만 오버레이 업로드
-    final failed = state.finalResult?.status == AnalysisStatus.failed;
-    if (_loop.recordedFilePath != null && !failed) {
-      _uploadOverlayVideo();
-    }
   }
 
   /// 녹화된 MP4를 WorkManager 백그라운드 태스크로 업로드 예약.
@@ -373,6 +371,10 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   }
 
   /// 분석 실패 시 관련 데이터 정리 후 RunSession 삭제.
+  ///
+  /// DELETE 자체는 백엔드에서 허용되지만, 이후 오버레이 업로드가 실행되면
+  /// 삭제된 RunSession을 update하려다 StaleStateException(500)이 발생한다.
+  /// 따라서 이 메서드 호출 경로에서는 절대 _uploadOverlayVideo()를 트리거하지 말 것.
   Future<void> _deleteRunSession() async {
     final runId = state.currentRunId;
     if (runId == null) return;
@@ -433,6 +435,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
           _deleteRunSession();
         } else {
           updateRunSession();
+          if (_loop.recordedFilePath != null) {
+            _uploadOverlayVideo();
+          }
         }
       }
       return;
@@ -468,7 +473,12 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
           _tts.speak('분석이 완료되었습니다. 러닝을 종료합니다.');
           updateRunSession();
         }
-        stopCapture();
+        stopCapture().then((_) {
+          if (data.status != AnalysisStatus.failed &&
+              _loop.recordedFilePath != null) {
+            _uploadOverlayVideo();
+          }
+        });
 
       case ErrorServerMessage():
         state = state.copyWith(latestError: msg);
