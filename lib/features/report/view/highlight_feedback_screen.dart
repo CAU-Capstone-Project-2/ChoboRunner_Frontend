@@ -77,7 +77,7 @@ class _HighlightBody extends StatefulWidget {
 
 class _HighlightBodyState extends State<_HighlightBody> {
   VideoPlayerController? _videoController;
-  int? _selectedIndex;
+  List<int>? _selectedIndices;
   Timer? _loopTimer;
 
   HighlightFeedback get feedback => widget.feedback;
@@ -112,30 +112,39 @@ class _HighlightBodyState extends State<_HighlightBody> {
     final controller = _videoController;
     if (controller == null || !controller.value.isInitialized) return;
 
-    final seg = feedback.segments[index];
+    final tapped = feedback.segments[index];
 
-    setState(() => _selectedIndex = index);
+    // 동일한 (start, end) 구간의 segments를 묶음. 마커가 시각적으로 겹쳐서
+    // 한 개만 보이고 클릭되더라도, 같은 시각의 다른 issueType highlight를
+    // 카드 list로 함께 노출 (1개 이상이면 자동 스크롤).
+    final group = <int>[
+      for (var i = 0; i < feedback.segments.length; i++)
+        if (feedback.segments[i].start == tapped.start &&
+            feedback.segments[i].end == tapped.end)
+          i,
+    ];
 
-    controller.seekTo(seg.start);
+    setState(() => _selectedIndices = group);
+
+    controller.seekTo(tapped.start);
     controller.play();
 
     _loopTimer?.cancel();
     _loopTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!mounted || _selectedIndex != index) {
+      if (!mounted || _selectedIndices != group) {
         _loopTimer?.cancel();
         return;
       }
       final pos = controller.value.position;
-      if (pos >= seg.end) {
-        controller.seekTo(seg.start);
+      if (pos >= tapped.end) {
+        controller.seekTo(tapped.start);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedSeg =
-        _selectedIndex != null ? feedback.segments[_selectedIndex!] : null;
+    final group = _selectedIndices;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
@@ -163,18 +172,26 @@ class _HighlightBodyState extends State<_HighlightBody> {
                   _TimelineBar(
                     totalDuration: feedback.totalDuration,
                     segments: feedback.segments,
-                    selectedIndex: _selectedIndex,
+                    selectedIndices: group?.toSet() ?? const {},
                     onSegmentTap: _onSegmentTap,
                   ),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: selectedSeg != null
-                        ? _SegmentCard(segment: selectedSeg)
-                        : Center(
+                    child: (group == null || group.isEmpty)
+                        ? Center(
                             child: Text(
                               '타임라인의 하이라이트 구간을 탭하세요',
                               style: AppTypography.bodyMuted
                                   .copyWith(fontSize: 14),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: EdgeInsets.zero,
+                            itemCount: group.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _SegmentCard(
+                              segment: feedback.segments[group[i]],
                             ),
                           ),
                   ),
@@ -261,13 +278,13 @@ class _TimelineBar extends StatelessWidget {
   const _TimelineBar({
     required this.totalDuration,
     required this.segments,
-    required this.selectedIndex,
+    required this.selectedIndices,
     required this.onSegmentTap,
   });
 
   final Duration totalDuration;
   final List<HighlightSegment> segments;
-  final int? selectedIndex;
+  final Set<int> selectedIndices;
   final ValueChanged<int> onSegmentTap;
 
   static const double _barHeight = 36;
@@ -303,7 +320,7 @@ class _TimelineBar extends StatelessWidget {
                   final left = startRatio * width;
                   final markerWidth = ((endRatio - startRatio) * width)
                       .clamp(_minMarkerWidth, width);
-                  final isSelected = selectedIndex == i;
+                  final isSelected = selectedIndices.contains(i);
 
                   return Positioned(
                     left: left,
