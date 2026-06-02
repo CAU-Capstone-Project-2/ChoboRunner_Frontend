@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/highlight_feedback.dart';
+import '../model/report_api_service.dart';
 import '../model/report_metric.dart';
 import '../viewmodel/highlight_feedback_viewmodel.dart';
 
@@ -98,7 +99,21 @@ class _HighlightBodyState extends State<_HighlightBody> {
     try {
       await controller.initialize();
       if (mounted) setState(() {});
+      _maybeBackfillDuration(controller);
     } catch (_) {}
+  }
+
+  /// 백엔드 run.duration이 비어있고(<=0) 영상 길이가 유효하면 한 번만 PUT.
+  /// 측정 중 강종/네트워크 실패로 duration이 null로 남은 과거 run을 자연
+  /// 보강한다. 이미 값이 있으면 덮어쓰지 않음.
+  void _maybeBackfillDuration(VideoPlayerController controller) {
+    if (feedback.backendDurationSec > 0) return;
+    final videoDur = controller.value.duration;
+    if (videoDur <= Duration.zero) return;
+    // unawaited: 실패해도 화면 흐름과 무관, 다음 진입에서 재시도됨
+    ReportApiService()
+        .patchRunDuration(feedback.sessionId, videoDur.inSeconds)
+        .catchError((_) {});
   }
 
   @override
@@ -146,6 +161,14 @@ class _HighlightBodyState extends State<_HighlightBody> {
   Widget build(BuildContext context) {
     final group = _selectedIndices;
 
+    // 백엔드 run.duration이 null/0이면 60초 fallback이라 타임라인이 어긋남.
+    // 영상이 로딩됐으면 실제 영상 길이를 우선 사용 → 마커 위치 정확.
+    final ctrl = _videoController;
+    final effectiveDuration =
+        (ctrl != null && ctrl.value.isInitialized && ctrl.value.duration > Duration.zero)
+            ? ctrl.value.duration
+            : feedback.totalDuration;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
       child: Column(
@@ -170,7 +193,7 @@ class _HighlightBodyState extends State<_HighlightBody> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _TimelineBar(
-                    totalDuration: feedback.totalDuration,
+                    totalDuration: effectiveDuration,
                     segments: feedback.segments,
                     selectedIndices: group?.toSet() ?? const {},
                     onSegmentTap: _onSegmentTap,

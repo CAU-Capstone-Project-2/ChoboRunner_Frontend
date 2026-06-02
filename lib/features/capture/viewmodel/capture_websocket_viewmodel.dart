@@ -343,7 +343,34 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   bool sendStop() {
     _stopped = true;
     _tts.speak('러닝을 종료합니다.');
+    // analysis_result가 안 와도 측정 시간이 DB에 남도록 즉시 PUT.
+    // status는 보내지 않으므로 RUNNING 유지(@DynamicUpdate 보존).
+    _persistDurationEarly();
     return _service.sendStop();
+  }
+
+  /// stop 시점의 elapsedSec만 PUT으로 먼저 저장.
+  ///
+  /// analysis_result 수신 후 [updateRunSession]이 status='DONE'으로 다시
+  /// update하므로 중복 호출이지만, 분석 결과를 못 받는 경로(앱 강종/네트워크
+  /// 단절/PUT 실패)에서도 duration은 보존된다.
+  Future<void> _persistDurationEarly() async {
+    final runId = state.currentRunId;
+    final userId = ref.read(authViewModelProvider).userId;
+    if (runId == null || userId == null) return;
+    try {
+      await _runApi.updateRun(RunSession(
+        id: runId,
+        userId: userId,
+        duration: state.elapsedSec,
+      ));
+      // ignore: avoid_print
+      print('[RunSession] duration persisted on stop: id=$runId, '
+          'duration=${state.elapsedSec}s');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[RunSession] early duration persist failed: $e');
+    }
   }
 
   /// 러닝 종료 후 RunSession 상태를 DONE으로 업데이트.
