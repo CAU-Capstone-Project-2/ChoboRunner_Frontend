@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../model/highlight_feedback.dart';
+import '../model/report_api_service.dart';
 import '../model/report_metric.dart';
 import '../viewmodel/highlight_feedback_viewmodel.dart';
 
@@ -77,7 +78,7 @@ class _HighlightBody extends StatefulWidget {
 
 class _HighlightBodyState extends State<_HighlightBody> {
   VideoPlayerController? _videoController;
-  int? _selectedIndex;
+  List<int>? _selectedIndices;
   Timer? _loopTimer;
 
   HighlightFeedback get feedback => widget.feedback;
@@ -98,7 +99,21 @@ class _HighlightBodyState extends State<_HighlightBody> {
     try {
       await controller.initialize();
       if (mounted) setState(() {});
+      _maybeBackfillDuration(controller);
     } catch (_) {}
+  }
+
+  /// 백엔드 run.duration이 비어있고(<=0) 영상 길이가 유효하면 한 번만 PUT.
+  /// 측정 중 강종/네트워크 실패로 duration이 null로 남은 과거 run을 자연
+  /// 보강한다. 이미 값이 있으면 덮어쓰지 않음.
+  void _maybeBackfillDuration(VideoPlayerController controller) {
+    if (feedback.backendDurationSec > 0) return;
+    final videoDur = controller.value.duration;
+    if (videoDur <= Duration.zero) return;
+    // unawaited: 실패해도 화면 흐름과 무관, 다음 진입에서 재시도됨
+    ReportApiService()
+        .patchRunDuration(feedback.sessionId, videoDur.inSeconds)
+        .catchError((_) {});
   }
 
   @override
@@ -112,30 +127,47 @@ class _HighlightBodyState extends State<_HighlightBody> {
     final controller = _videoController;
     if (controller == null || !controller.value.isInitialized) return;
 
-    final seg = feedback.segments[index];
+    final tapped = feedback.segments[index];
 
-    setState(() => _selectedIndex = index);
+    // 동일한 (start, end) 구간의 segments를 묶음. 마커가 시각적으로 겹쳐서
+    // 한 개만 보이고 클릭되더라도, 같은 시각의 다른 issueType highlight를
+    // 카드 list로 함께 노출 (1개 이상이면 자동 스크롤).
+    final group = <int>[
+      for (var i = 0; i < feedback.segments.length; i++)
+        if (feedback.segments[i].start == tapped.start &&
+            feedback.segments[i].end == tapped.end)
+          i,
+    ];
 
-    controller.seekTo(seg.start);
+    setState(() => _selectedIndices = group);
+
+    controller.seekTo(tapped.start);
     controller.play();
 
     _loopTimer?.cancel();
     _loopTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (!mounted || _selectedIndex != index) {
+      if (!mounted || _selectedIndices != group) {
         _loopTimer?.cancel();
         return;
       }
       final pos = controller.value.position;
-      if (pos >= seg.end) {
-        controller.seekTo(seg.start);
+      if (pos >= tapped.end) {
+        controller.seekTo(tapped.start);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedSeg =
-        _selectedIndex != null ? feedback.segments[_selectedIndex!] : null;
+    final group = _selectedIndices;
+
+    // 백엔드 run.duration이 null/0이면 60초 fallback이라 타임라인이 어긋남.
+    // 영상이 로딩됐으면 실제 영상 길이를 우선 사용 → 마커 위치 정확.
+    final ctrl = _videoController;
+    final effectiveDuration =
+        (ctrl != null && ctrl.value.isInitialized && ctrl.value.duration > Duration.zero)
+            ? ctrl.value.duration
+            : feedback.totalDuration;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
@@ -161,20 +193,28 @@ class _HighlightBodyState extends State<_HighlightBody> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _TimelineBar(
-                    totalDuration: feedback.totalDuration,
+                    totalDuration: effectiveDuration,
                     segments: feedback.segments,
-                    selectedIndex: _selectedIndex,
+                    selectedIndices: group?.toSet() ?? const {},
                     onSegmentTap: _onSegmentTap,
                   ),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: selectedSeg != null
-                        ? _SegmentCard(segment: selectedSeg)
-                        : Center(
+                    child: (group == null || group.isEmpty)
+                        ? Center(
                             child: Text(
                               '타임라인의 하이라이트 구간을 탭하세요',
                               style: AppTypography.bodyMuted
                                   .copyWith(fontSize: 14),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: EdgeInsets.zero,
+                            itemCount: group.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _SegmentCard(
+                              segment: feedback.segments[group[i]],
                             ),
                           ),
                   ),
@@ -230,11 +270,26 @@ class _VideoArea extends StatelessWidget {
       );
     }
 
+    // 영상은 native 비율 유지하면서 영역을 꽉 채우고 넘치는 좌우는 잘라냄.
+    // (landscape 영상이 portrait 영역에 letterbox로 작게 보이는 문제 해결)
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: AspectRatio(
-        aspectRatio: ctrl.value.aspectRatio,
-        child: VideoPlayer(ctrl),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox(
+            width: constraints.maxWidth,
+            height: constraints.maxHeight,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: ctrl.value.size.width,
+                height: ctrl.value.size.height,
+                child: VideoPlayer(ctrl),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -246,13 +301,13 @@ class _TimelineBar extends StatelessWidget {
   const _TimelineBar({
     required this.totalDuration,
     required this.segments,
-    required this.selectedIndex,
+    required this.selectedIndices,
     required this.onSegmentTap,
   });
 
   final Duration totalDuration;
   final List<HighlightSegment> segments;
-  final int? selectedIndex;
+  final Set<int> selectedIndices;
   final ValueChanged<int> onSegmentTap;
 
   static const double _barHeight = 36;
@@ -288,7 +343,7 @@ class _TimelineBar extends StatelessWidget {
                   final left = startRatio * width;
                   final markerWidth = ((endRatio - startRatio) * width)
                       .clamp(_minMarkerWidth, width);
-                  final isSelected = selectedIndex == i;
+                  final isSelected = selectedIndices.contains(i);
 
                   return Positioned(
                     left: left,

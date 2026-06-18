@@ -4,6 +4,11 @@ import 'package:flutter/foundation.dart';
 class HighlightFeedback {
   final String sessionId;
   final Duration totalDuration;
+
+  /// 백엔드 run.duration의 raw 값. 0이면 미저장 상태(null 또는 0).
+  /// 화면이 영상 길이로 백필 PUT을 할지 결정하는 데 사용.
+  final int backendDurationSec;
+
   final List<HighlightSegment> segments;
   final String message;
   final String? videoUrl;
@@ -11,6 +16,7 @@ class HighlightFeedback {
   const HighlightFeedback({
     required this.sessionId,
     required this.totalDuration,
+    required this.backendDurationSec,
     required this.segments,
     required this.message,
     this.videoUrl,
@@ -40,6 +46,7 @@ class HighlightFeedback {
     return HighlightFeedback(
       sessionId: sessionId,
       totalDuration: Duration(seconds: durationSec > 0 ? durationSec : 60),
+      backendDurationSec: durationSec,
       segments: segments,
       message: messages.isEmpty ? '하이라이트 피드백이 없습니다.' : messages,
       videoUrl: videoUrl,

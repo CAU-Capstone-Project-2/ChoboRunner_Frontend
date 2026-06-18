@@ -8,7 +8,6 @@ final highlightFeedbackProvider =
   final api = ReportApiService();
 
   final highlights = await api.getHighlightsByRun(runId);
-  if (highlights.isEmpty) return null;
 
   final run = await api.getRun(runId);
   final durationSec = (run?['duration'] as num?)?.toInt() ?? 0;
@@ -18,6 +17,10 @@ final highlightFeedbackProvider =
   if (videoS3Key != null && videoS3Key.isNotEmpty) {
     videoUrl = await api.getPresignedUrl(videoS3Key);
   }
+
+  // highlight row가 0건이라도 영상은 있을 수 있음 (백엔드가 detection 0건으로
+  // 끝낸 케이스). 둘 다 없을 때만 진짜 빈 상태.
+  if (highlights.isEmpty && videoUrl == null) return null;
 
   return HighlightFeedback.fromHighlights(
     sessionId: runId,

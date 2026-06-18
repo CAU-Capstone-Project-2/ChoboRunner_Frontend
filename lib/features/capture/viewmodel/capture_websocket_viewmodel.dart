@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/background/overlay_upload_task.dart';
@@ -255,6 +255,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     return _service.sendFrame(frame, tsMs: tsMs);
   }
 
+  /// 측정 화면 미리보기용 최신 JPEG.
+  ValueListenable<Uint8List?> get latestJpegNotifier => _loop.latestJpeg;
+
   /// 측정 시작 — session_start 전송 후 캡처 루프 가동
   void startCapture() {
     final camPos = ref.read(captureSetupViewModelProvider).cameraPosition;
@@ -286,7 +289,11 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   }
 
   /// 측정 정지 — 캡처 루프 멈춤 + 녹화 종료 (stop 메시지는 별도).
-  /// 녹화 파일이 있으면 오버레이 업로드를 fire-and-forget으로 시작.
+  ///
+  /// 오버레이 업로드는 여기서 시작하지 않는다.
+  /// analysis_result 수신 후 status가 failed가 아닌 경우에만 트리거된다.
+  /// (실패 시 업로드 → 서버가 이미 정리된/존재하지 않는 RunSession을 update해
+  ///  StaleStateException이 발생하는 문제 회피)
   Future<void> stopCapture() async {
     await _loop.stop();
 
@@ -295,12 +302,6 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
     _elapsedTimer?.cancel();
     _elapsedTimer = null;
     _stopwatch?.stop();
-
-    // 분석 실패가 아닌 경우에만 오버레이 업로드
-    final failed = state.finalResult?.status == AnalysisStatus.failed;
-    if (_loop.recordedFilePath != null && !failed) {
-      _uploadOverlayVideo();
-    }
   }
 
   /// 녹화된 MP4를 WorkManager 백그라운드 태스크로 업로드 예약.
@@ -342,7 +343,34 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   bool sendStop() {
     _stopped = true;
     _tts.speak('러닝을 종료합니다.');
+    // analysis_result가 안 와도 측정 시간이 DB에 남도록 즉시 PUT.
+    // status는 보내지 않으므로 RUNNING 유지(@DynamicUpdate 보존).
+    _persistDurationEarly();
     return _service.sendStop();
+  }
+
+  /// stop 시점의 elapsedSec만 PUT으로 먼저 저장.
+  ///
+  /// analysis_result 수신 후 [updateRunSession]이 status='DONE'으로 다시
+  /// update하므로 중복 호출이지만, 분석 결과를 못 받는 경로(앱 강종/네트워크
+  /// 단절/PUT 실패)에서도 duration은 보존된다.
+  Future<void> _persistDurationEarly() async {
+    final runId = state.currentRunId;
+    final userId = ref.read(authViewModelProvider).userId;
+    if (runId == null || userId == null) return;
+    try {
+      await _runApi.updateRun(RunSession(
+        id: runId,
+        userId: userId,
+        duration: state.elapsedSec,
+      ));
+      // ignore: avoid_print
+      print('[RunSession] duration persisted on stop: id=$runId, '
+          'duration=${state.elapsedSec}s');
+    } catch (e) {
+      // ignore: avoid_print
+      print('[RunSession] early duration persist failed: $e');
+    }
   }
 
   /// 러닝 종료 후 RunSession 상태를 DONE으로 업데이트.
@@ -370,6 +398,10 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
   }
 
   /// 분석 실패 시 관련 데이터 정리 후 RunSession 삭제.
+  ///
+  /// DELETE 자체는 백엔드에서 허용되지만, 이후 오버레이 업로드가 실행되면
+  /// 삭제된 RunSession을 update하려다 StaleStateException(500)이 발생한다.
+  /// 따라서 이 메서드 호출 경로에서는 절대 _uploadOverlayVideo()를 트리거하지 말 것.
   Future<void> _deleteRunSession() async {
     final runId = state.currentRunId;
     if (runId == null) return;
@@ -430,6 +462,9 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
           _deleteRunSession();
         } else {
           updateRunSession();
+          if (_loop.recordedFilePath != null) {
+            _uploadOverlayVideo();
+          }
         }
       }
       return;
@@ -465,7 +500,12 @@ class CaptureWebSocketViewModel extends Notifier<CaptureWebSocketState> {
           _tts.speak('분석이 완료되었습니다. 러닝을 종료합니다.');
           updateRunSession();
         }
-        stopCapture();
+        stopCapture().then((_) {
+          if (data.status != AnalysisStatus.failed &&
+              _loop.recordedFilePath != null) {
+            _uploadOverlayVideo();
+          }
+        });
 
       case ErrorServerMessage():
         state = state.copyWith(latestError: msg);

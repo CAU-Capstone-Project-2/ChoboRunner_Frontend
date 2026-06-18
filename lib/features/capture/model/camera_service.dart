@@ -1,24 +1,27 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 
+import 'camera2_recording_service.dart';
+
 /// 카메라 하드웨어를 감싸는 서비스.
 ///
-/// - 카메라 목록 조회 및 후면 카메라 선택
-/// - CameraController 초기화/dispose
-/// - image stream(YUV420) 시작/정지 및 최신 프레임 캐시
-/// - MP4 녹화 (startVideoRecording + onAvailable 콜백으로 프레임 동시 수신)
-///
-/// 단일 프레임 캡처(takePicture) 방식은 제거됨. CaptureLoopController가
-/// 33ms 주기로 takeLatest()를 호출해 최신 캐시 프레임을 사용한다.
+/// - 설정 화면 미리보기: Flutter `camera` 플러그인 사용 (`controller`)
+/// - 측정 중 녹화 + 분석 프레임: 네이티브 Camera2 사용 (`camera2`)
+///   → 일부 OEM(S24 등)에서 3-surface 강제로 ImageAnalysis가 드롭되는 문제를
+///     우회하기 위해 2-surface(ImageReader + MediaRecorder)로 직접 운영
 class CameraService {
   CameraController? _controller;
   List<CameraDescription> _availableCameras = const [];
   CameraDescription? _selectedCamera;
-  bool _streaming = false;
-  bool _recording = false;
 
-  /// 외부에서 프리뷰 위젯이 사용할 컨트롤러 (초기화 후 non-null)
+  final Camera2RecordingService _camera2 = Camera2RecordingService();
+
+  /// 설정 화면이 사용할 컨트롤러 (초기화 후 non-null).
+  /// 측정 시작 시 [startCamera2Recording] 호출과 함께 dispose된다.
   CameraController? get controller => _controller;
+
+  /// 측정 중 사용할 네이티브 Camera2 서비스.
+  Camera2RecordingService get camera2 => _camera2;
 
   bool get isInitialized => _controller?.value.isInitialized ?? false;
 
@@ -40,10 +43,8 @@ class CameraService {
     );
   }
 
-  /// 카메라 초기화
-  ///
+  /// Flutter 카메라 플러그인 controller 초기화 (설정 화면 미리보기용).
   /// 권한이 이미 허용된 상태에서 호출되어야 함.
-  /// 권한 처리는 ViewModel 책임.
   Future<void> initialize() async {
     if (_availableCameras.isEmpty) {
       await loadAvailableCameras();
@@ -55,11 +56,14 @@ class CameraService {
     }
     _selectedCamera = camera;
 
+    // 이미 살아있으면 그대로 사용
+    if (_controller != null && _controller!.value.isInitialized) return;
+
     await _controller?.dispose();
 
     _controller = CameraController(
       camera,
-      ResolutionPreset.high, // 1280x720 정도. 백엔드 권장 720p.
+      ResolutionPreset.high, // 1280x720
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.yuv420,
     );
@@ -68,97 +72,47 @@ class CameraService {
     await _controller!.lockCaptureOrientation(DeviceOrientation.portraitUp);
   }
 
-  /// image stream 시작.
+  /// 측정 시작 — Flutter 플러그인 controller dispose + Camera2 네이티브 시작.
   ///
-  /// 스트림 콜백 안에서는 최신 프레임만 캐시한다 (덮어쓰기).
-  /// 소비 측은 takeLatest()로 가장 최근 프레임을 가져간다.
-  Future<void> startStream() async {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      throw StateError('카메라가 초기화되지 않았습니다');
-    }
-    if (_streaming) return;
-
-    await controller.startImageStream((image) {
-      _latestImage = image;
-    });
-    _streaming = true;
-  }
-
-  /// image stream 정지. 캐시도 비움.
-  Future<void> stopStream() async {
-    if (!_streaming) return;
-    final controller = _controller;
-    if (controller != null && controller.value.isStreamingImages) {
-      try {
-        await controller.stopImageStream();
-      } catch (_) {
-        // 이미 멈춰있어도 무시
-      }
-    }
-    _streaming = false;
-    _latestImage = null;
-  }
-
-  bool get isStreaming => _streaming;
-  bool get isRecording => _recording;
-
-  CameraImage? _latestImage;
-
-  /// 가장 최근에 들어온 프레임 캐시. 없으면 null.
-  /// 호출 후 캐시를 비우지 않으므로 같은 프레임을 두 번 가져갈 수 있다.
-  CameraImage? takeLatest() => _latestImage;
-
-  /// MP4 녹화 + 프레임 스트림 동시 시작.
+  /// 호출 후 [controller]는 null이 되므로 UI는 [camera2.frames]에서 들어오는
+  /// JPEG로 미리보기를 구성해야 한다.
   ///
-  /// camera 플러그인의 startVideoRecording(onAvailable:)을 사용해
-  /// MP4 파일 녹화와 YUV420 프레임 콜백을 동시에 받는다.
-  /// CaptureLoopController는 takeLatest()로 프레임을 가져가 WS로 전송.
-  Future<void> startRecording() async {
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      throw StateError('카메라가 초기화되지 않았습니다');
-    }
-    if (_recording) return;
-
-    await controller.startVideoRecording(
-      onAvailable: (image) {
-        _latestImage = image;
-      },
-    );
-    // 녹화 시작 시 Camera2 세션이 재생성되므로 방향 재고정
-    await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
-    _recording = true;
-    _streaming = true;
-  }
-
-  /// MP4 녹화 정지. 녹화된 파일 경로를 반환.
-  Future<String?> stopRecording() async {
-    if (!_recording) return null;
-    final controller = _controller;
-    if (controller == null) return null;
-
-    _recording = false;
-    _streaming = false;
-    _latestImage = null;
-
+  /// @return 카메라 open 성공 여부
+  Future<bool> startCamera2Recording() async {
+    // Flutter camera plugin이 카메라를 잡고 있으면 Camera2에서 open 실패하므로
+    // 먼저 plugin controller를 dispose해 HW를 해제한다.
     try {
-      final file = await controller.stopVideoRecording();
-      return file.path;
-    } catch (_) {
-      return null;
-    }
+      await _controller?.dispose();
+    } catch (_) {}
+    _controller = null;
+
+    return _camera2.start();
   }
 
-  /// 리소스 정리
+  /// 측정 종료 — Camera2 정지하고 저장된 mp4 경로 반환.
+  Future<String?> stopCamera2Recording() async {
+    return _camera2.stop();
+  }
+
+  bool get isCamera2Running => _camera2.isRunning;
+
+  /// 리소스 정리.
+  ///
+  /// 주의: 이 메서드는 측정 종료 후 `releaseCamera()`에서도 호출되므로 Camera2
+  /// 서비스는 stop만 하고 완전 dispose하지 않는다 (`_framesController`가 닫히면
+  /// 다음 측정에서 add 실패). 진짜 종료는 [shutdownAll]로 별도 호출.
   Future<void> dispose() async {
-    if (_recording) {
-      await stopRecording();
-    } else {
-      await stopStream();
+    if (_camera2.isRunning) {
+      await _camera2.stop();
     }
     await _controller?.dispose();
     _controller = null;
     _selectedCamera = null;
+  }
+
+  /// 앱 종료 시 호출. Camera2 서비스까지 완전히 폐기.
+  Future<void> shutdownAll() async {
+    await dispose();
+    await _camera2.dispose();
   }
 }

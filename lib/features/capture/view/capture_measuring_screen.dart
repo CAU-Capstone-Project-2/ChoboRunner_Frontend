@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:typed_data';
 
-import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -40,6 +40,11 @@ class _CaptureMeasuringScreenState
   @override
   void initState() {
     super.initState();
+    // 측정 흐름은 landscape 강제. dispose에서 portrait 복원.
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
       _wsVm!.resetSession();
@@ -52,6 +57,7 @@ class _CaptureMeasuringScreenState
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     super.dispose();
   }
 
@@ -229,73 +235,59 @@ class _MainContent extends ConsumerWidget {
     final wsState = ref.watch(captureWebSocketViewModelProvider);
     final wsVm = ref.read(captureWebSocketViewModelProvider.notifier);
     final cameraVm = ref.read(cameraViewModelProvider.notifier);
-    final controller = cameraVm.service.controller;
 
-    if (controller == null || !controller.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.textPrimary),
-      );
-    }
-
+    // landscape 가로 레이아웃: 좌측 카메라(flex 6) + 우측 컨트롤(flex 4).
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
         children: [
-          // 카메라 영역 (직사각형, 화면 상부 ~55%)
           Expanded(
-            flex: 5,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 16),
-              child: _CameraArea(controller: controller),
+            flex: 6,
+            child: _CameraArea(latestJpeg: wsVm.latestJpegNotifier),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 4,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 4),
+                  _RecognitionStatusRow(wsState: wsState),
+                  const SizedBox(height: 12),
+                  _FeedbackArea(wsState: wsState),
+                  const SizedBox(height: 16),
+                  _RunningTime(wsState: wsState),
+                  const SizedBox(height: 16),
+                  _PrimaryAction(
+                    wsState: wsState,
+                    wsVm: wsVm,
+                    cameraVm: cameraVm,
+                    measurementStarted: measurementStarted,
+                  ),
+                  TextButton.icon(
+                    icon: Icon(
+                      showDebug ? Icons.bug_report : Icons.bug_report_outlined,
+                      size: 14,
+                      color: AppColors.textMuted,
+                    ),
+                    label: Text(
+                      showDebug ? '디버그 숨기기' : '디버그',
+                      style: AppTypography.debugLabel,
+                    ),
+                    onPressed: onToggleDebug,
+                  ),
+                  if (showDebug)
+                    _DebugPanel(
+                      wsState: wsState,
+                      wsVm: wsVm,
+                      cameraVm: cameraVm,
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
             ),
           ),
-
-          // 사용자 인식 상태 placeholder (단계 B에서 채울 자리)
-          _RecognitionStatusRow(wsState: wsState),
-
-          const SizedBox(height: 16),
-
-          // 피드백 메시지 (priority 가장 높은 1개)
-          _FeedbackArea(wsState: wsState),
-
-          const SizedBox(height: 20),
-
-          // 러닝 시간 큰 글씨
-          _RunningTime(wsState: wsState),
-
-          const SizedBox(height: 20),
-
-          // 메인 액션 버튼 (라임 옐로우)
-          _PrimaryAction(
-            wsState: wsState,
-            wsVm: wsVm,
-            cameraVm: cameraVm,
-            measurementStarted: measurementStarted,
-          ),
-
-          // 디버그 토글
-          TextButton.icon(
-            icon: Icon(
-              showDebug ? Icons.bug_report : Icons.bug_report_outlined,
-              size: 14,
-              color: AppColors.textMuted,
-            ),
-            label: Text(
-              showDebug ? '디버그 숨기기' : '디버그',
-              style: AppTypography.debugLabel,
-            ),
-            onPressed: onToggleDebug,
-          ),
-
-          // 디버그 영역
-          if (showDebug)
-            _DebugPanel(
-              wsState: wsState,
-              wsVm: wsVm,
-              cameraVm: cameraVm,
-            ),
-
-          const SizedBox(height: 8),
         ],
       ),
     );
@@ -305,19 +297,42 @@ class _MainContent extends ConsumerWidget {
 // ─────────── 카메라 영역 ───────────
 
 class _CameraArea extends StatelessWidget {
-  const _CameraArea({required this.controller});
-  final CameraController controller;
+  const _CameraArea({required this.latestJpeg});
+  final ValueListenable<Uint8List?> latestJpeg;
 
   @override
   Widget build(BuildContext context) {
+    // 네이티브 Camera2가 센서 원본(landscape, rotation=0)을 그대로 푸시.
+    // 서버에는 landscape 그대로 전송하고, 화면만 RotatedBox로 90° 회전해 portrait-fit.
+    // 첫 프레임 도착 전(카메라 open ~ 첫 인코딩까지 ~1초)은 로딩 표시.
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: AppColors.cameraPlaceholder),
-          CameraPreview(controller),
-        ],
+      child: ValueListenableBuilder<Uint8List?>(
+        valueListenable: latestJpeg,
+        builder: (context, jpeg, _) {
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(color: AppColors.cameraPlaceholder),
+              if (jpeg != null)
+                // landscape orientation 강제 후엔 sensor와 화면 방향 동일.
+                // 회전 없이 그대로 fit.
+                Image.memory(
+                  jpeg,
+                  gaplessPlayback: true,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                )
+              else
+                const Center(
+                  child: CircularProgressIndicator(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

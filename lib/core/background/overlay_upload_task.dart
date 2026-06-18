@@ -78,9 +78,17 @@ Future<bool> executeOverlayUpload() async {
         // ignore: avoid_print
         print('[Overlay] background upload success for run=${params.runSessionId}');
         try { await file.delete(); } catch (_) {}
-      } else {
+      } else if (_isPermanentFailure(res.statusCode)) {
+        // 4xx (404/400/401 등): RunSession 없음/요청 잘못됨 → 재시도해도 답 없음.
+        // 큐에서 빼고 로컬 mp4도 정리.
         // ignore: avoid_print
-        print('[Overlay] background upload failed (${res.statusCode}): ${res.body}');
+        print('[Overlay] background upload permanent failure (${res.statusCode}): '
+            '${res.body} — dropping run=${params.runSessionId}');
+        try { await file.delete(); } catch (_) {}
+      } else {
+        // 5xx 또는 408/429: 일시적 실패 → 재시도 큐에 유지.
+        // ignore: avoid_print
+        print('[Overlay] background upload retry (${res.statusCode}): ${res.body}');
         remaining.add(entry);
       }
     } catch (e) {
@@ -92,4 +100,12 @@ Future<bool> executeOverlayUpload() async {
 
   await prefs.setStringList(_prefKey, remaining);
   return remaining.isEmpty;
+}
+
+/// 4xx 응답 중 재시도가 무의미한 영구 실패 코드 판별.
+/// 408 Request Timeout, 429 Too Many Requests는 일시적이므로 재시도 유지.
+bool _isPermanentFailure(int statusCode) {
+  if (statusCode < 400 || statusCode >= 500) return false;
+  if (statusCode == 408 || statusCode == 429) return false;
+  return true;
 }

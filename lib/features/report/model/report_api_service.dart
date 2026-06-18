@@ -46,6 +46,17 @@ class ReportApiService {
   Future<List<Map<String, dynamic>>> getFeedbacksByRun(String runId) =>
       _getList('/api/feedbacks/by-run/$runId');
 
+  /// run.duration만 부분 PUT. 백엔드가 @DynamicUpdate를 적용해 다른 필드는
+  /// 보존된다. 하이라이트 화면에서 영상 길이를 알게 됐을 때 비어있던 duration을
+  /// 백필하는 용도.
+  Future<void> patchRunDuration(String runId, int durationSec) async {
+    await _client.put(
+      _uri('/api/runs/$runId'),
+      headers: defaultHeaders(withJson: true),
+      body: jsonEncode({'duration': durationSec}),
+    );
+  }
+
   Future<String?> getPresignedUrl(String key) async {
     final res = await _client.get(
       Uri.parse('$kApiBaseUrl/api/s3/presigned-url')

@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -22,6 +23,11 @@ class _CaptureSetupScreenState extends ConsumerState<CaptureSetupScreen> {
   @override
   void initState() {
     super.initState();
+    // 측정 흐름 3화면(준비/카운트다운/측정)은 landscape 강제. dispose에서 복원.
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(captureSetupViewModelProvider.notifier).reset();
       ref
@@ -29,6 +35,12 @@ class _CaptureSetupScreenState extends ConsumerState<CaptureSetupScreen> {
           .requestPermissionAndInitialize();
     });
   }
+
+  // dispose에서 portrait 복원하지 않음 — measuring 화면으로 전환 시
+  // (measuring.initState landscape) 이후 (setup.dispose portrait) 순서로
+  // race가 일어나 측정 화면이 portrait로 굳어지는 문제. portrait 복원은
+  // 측정 흐름 마지막 화면(measuring.dispose)이나 명시적 핸들러(홈으로)
+  // 에서만 수행.
 
   @override
   Widget build(BuildContext context) {
@@ -166,30 +178,22 @@ class _MainContent extends ConsumerWidget {
       );
     }
 
+    // landscape 가로 레이아웃: 좌측 카메라(flex 6) + 우측 컨트롤(flex 4).
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
         children: [
-          // 카메라 영역 (모드 무관 공통)
           Expanded(
-            flex: 5,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8, bottom: 16),
-              child: _CameraArea(controller: controller),
-            ),
+            flex: 6,
+            child: _CameraArea(controller: controller),
           ),
-
-          const SizedBox(height: 16),
-
-          // 모드별 분기 영역
+          const SizedBox(width: 16),
           Expanded(
-            flex: 3,
+            flex: 4,
             child: setupState.mode == SetupMode.setup
                 ? const _SetupContent()
                 : _CountdownContent(value: setupState.countdownValue),
           ),
-
-          const SizedBox(height: 8),
         ],
       ),
     );
@@ -204,18 +208,25 @@ class _CameraArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // CameraPreview의 자동 회전이 landscape에서 sensor와 어긋나 시계 90°
+    // 누워보이는 문제 → RotatedBox(quarterTurns:3)로 보정.
+    // 회전 후 종횡비가 swap되므로 SizedBox의 width/height도 함께 swap해야
+    // FittedBox cover 비율이 정상.
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Stack(
         fit: StackFit.expand,
         children: [
           Container(color: AppColors.cameraPlaceholder),
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: controller.value.previewSize?.height ?? 1,
-              height: controller.value.previewSize?.width ?? 1,
-              child: CameraPreview(controller),
+          RotatedBox(
+            quarterTurns: 3,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: controller.value.previewSize?.height ?? 1,
+                height: controller.value.previewSize?.width ?? 1,
+                child: CameraPreview(controller),
+              ),
             ),
           ),
         ],
@@ -262,6 +273,8 @@ class _SetupContent extends ConsumerWidget {
               ),
             ),
             onPressed: () {
+              SystemChrome.setPreferredOrientations(
+                  [DeviceOrientation.portraitUp]);
               ref.read(captureWebSocketViewModelProvider.notifier).releaseCamera();
               context.go(AppRoutes.home);
             },
